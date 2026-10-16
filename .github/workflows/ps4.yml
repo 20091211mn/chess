@@ -15,7 +15,7 @@ jobs:
       - name: Download OpenOrbis toolchain
         run: |
           mkdir -p tc && cd tc
-          gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain
+          gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern '*'
           ls -la
           for f in *.zip; do [ -e "$f" ] && unzip -oq "$f"; done
           for f in *.tar.gz; do [ -e "$f" ] && tar -xzf "$f"; done
