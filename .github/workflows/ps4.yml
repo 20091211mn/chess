@@ -18,13 +18,20 @@ jobs:
           gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern '*.tar.gz'
           tar -xzf *.tar.gz
           chmod -R +x bin || true
-          ls
-      - name: Build hello_world sample
+      - name: Prepare chess from SDL sample
         run: |
-          cd toolchain/samples/hello_world
-          make
+          D=$(find toolchain/samples -maxdepth 1 -type d -ipath '*sdl*' | head -1)
+          echo "Sample: $D"; find "$D" -maxdepth 2 | head -40
+          cp -r "$D" build
+          M=$(find build -type f \( -name 'main.c' -o -name 'main.cpp' \) | head -1)
+          echo "Main: $M"
+          cp ps4/main.c "$M"
+          cp ps4/chess_engine.h "$(dirname "$M")/"
+      - name: Build PKG
+        run: |
+          cd build && make
           find . -name '*.pkg'
       - uses: actions/upload-artifact@v4
         with:
-          name: ps4-pkg
-          path: toolchain/samples/hello_world/**/*.pkg
+          name: chess-ps4-pkg
+          path: build/**/*.pkg
