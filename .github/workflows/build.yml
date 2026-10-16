@@ -1,0 +1,9 @@
+name: build
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ test.cpp -o test && ./test
+      - run: g++ main.cpp -o chess

@@ -31,22 +31,22 @@ struct Chess {
       case 'b': return ar==ac && clear(r1,c1,r2,c2);
       case 'r': return (dr==0||dc==0) && clear(r1,c1,r2,c2);
       case 'q': return (ar==ac||dr==0||dc==0) && clear(r1,c1,r2,c2);
-      case 'k'
-
-cat > main.cpp << 'EOF'
-#include <iostream>
-#include <string>
-#include "chess.h"
-using namespace std;
-int main(){
-  Chess g; string m;
-  while (true){
-    for (int r=0;r<8;r++){ cout<<8-r<<" ";
-      for (int c=0;c<8;c++) cout<<g.b[r][c]<<" "; cout<<"\n"; }
-    cout<<"  a b c d e f g h\n";
-    cout<<(g.whiteTurn?"الابيض":"الاسود")<<" (مثال e2e4, q=خروج): ";
-    cin>>m; if (m=="q") break;
-    if (m.size()<4 || !g.move(8-(m[1]-'0'), m[0]-'a', 8-(m[3]-'0'), m[2]-'a'))
-      cout<<"حركة غير صحيحة\n";
+      case 'k': return ar<=1 && ac<=1;
+    }
+    return false;
   }
-}
+  bool move(int r1,int c1,int r2,int c2){
+    if (!valid(r1,c1,r2,c2)) return false;
+    char p=b[r1][c1];
+    b[r2][c2]=p; b[r1][c1]='.';
+    if (p=='P' && r2==0) b[r2][c2]='Q';
+    if (p=='p' && r2==7) b[r2][c2]='q';
+    whiteTurn=!whiteTurn;
+    return true;
+  }
+  // "e2e4" -> move
+  bool moveStr(const char* m){
+    if (!m[0]||!m[1]||!m[2]||!m[3]) return false;
+    return move(8-(m[1]-'0'), m[0]-'a', 8-(m[3]-'0'), m[2]-'a');
+  }
+};
