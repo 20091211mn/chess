@@ -16,24 +16,26 @@ jobs:
         run: |
           mkdir -p tc && cd tc
           gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern '*'
-          ls -la
           for f in *.zip; do [ -e "$f" ] && unzip -oq "$f"; done
           for f in *.tar.gz; do [ -e "$f" ] && tar -xzf "$f"; done
           S=$(find "$PWD" -maxdepth 3 -type d -name samples | head -1)
           ROOT=$(dirname "$S")
-          echo "Toolchain root: $ROOT"; ls "$ROOT"
           echo "OO_PS4_TOOLCHAIN=$ROOT" >> $GITHUB_ENV
           chmod -R +x "$ROOT/bin" || true
       - name: Prepare chess from SDL sample
         run: |
           ls "$OO_PS4_TOOLCHAIN/samples"
           D=$(find "$OO_PS4_TOOLCHAIN/samples" -maxdepth 1 -type d -ipath '*sdl*' | head -1)
-          echo "Sample: $D"; find "$D" -maxdepth 2 | head -40
+          echo "Sample: $D"
           cp -r "$D" build
-          M=$(find build -type f \( -name 'main.c' -o -name 'main.cpp' \) | head -1)
-          echo "Main: $M"
-          cp ps4/main.c "$M"
-          cp ps4/chess_engine.h "$(dirname "$M")/"
+          echo "=== tree ==="; find build -maxdepth 3 | head -60
+          echo "=== Makefile ==="; sed -n 1,70p build/Makefile
+          if grep -qE 'src' build/Makefile; then T=build/src; else T=build; fi
+          echo "Target dir: $T"
+          mkdir -p "$T"
+          find "$T" -maxdepth 1 -type f \( -name '*.c' -o -name '*.cpp' \) -delete
+          { echo '#include <sstream>'; echo 'std::stringstream debugLogStream;'; cat ps4/main.c; } > "$T/main.cpp"
+          cp ps4/chess_engine.h "$T/"
       - name: Build PKG
         run: |
           cd build && make
