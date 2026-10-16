@@ -7,20 +7,27 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       GH_TOKEN: ${{ github.token }}
-      OO_PS4_TOOLCHAIN: ${{ github.workspace }}/toolchain
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y clang lld llvm
+        run: sudo apt-get update && sudo apt-get install -y clang lld llvm unzip
       - name: Download OpenOrbis toolchain
         run: |
-          mkdir -p toolchain && cd toolchain
-          gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern '*.tar.gz'
-          tar -xzf *.tar.gz
-          chmod -R +x bin || true
+          mkdir -p tc && cd tc
+          gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain
+          ls -la
+          for f in *.zip; do [ -e "$f" ] && unzip -oq "$f"; done
+          for f in *.tar.gz; do [ -e "$f" ] && tar -xzf "$f"; done
+          S=$(find "$PWD" -maxdepth 3 -type d -name samples | head -1)
+          ROOT=$(dirname "$S")
+          echo "Toolchain root: $ROOT"; ls "$ROOT"
+          echo "OO_PS4_TOOLCHAIN=$ROOT" >> $GITHUB_ENV
+          chmod -R +x "$ROOT/bin" || true
       - name: Prepare chess from SDL sample
         run: |
-          D=$(find toolchain/samples -maxdepth 1 -type d -ipath '*sdl*' | head -1)
+          ls "$OO_PS4_TOOLCHAIN/samples"
+          D=$(find "$OO_PS4_TOOLCHAIN/samples" -maxdepth 1 -type d -ipath '*sdl*' | head -1)
           echo "Sample: $D"; find "$D" -maxdepth 2 | head -40
           cp -r "$D" build
           M=$(find build -type f \( -name 'main.c' -o -name 'main.cpp' \) | head -1)
