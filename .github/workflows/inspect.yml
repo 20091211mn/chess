@@ -1,0 +1,17 @@
+name: inspect
+on: workflow_dispatch
+jobs:
+  look:
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          mkdir t && cd t
+          gh release download --repo OpenOrbis/OpenOrbis-PS4-Toolchain --pattern '*.tar.gz'
+          tar -xzf *.tar.gz
+          echo "=== samples ==="; ls samples
+          D=$(find samples -ipath '*sdl*' -maxdepth 2 -type d | head -1)
+          echo "=== $D ==="; find "$D" -maxdepth 2 | head -50
+          echo "=== Makefile ==="; cat "$D/Makefile"
+          echo "=== main ==="; head -80 $(find "$D" -name 'main.c*' | head -1)
