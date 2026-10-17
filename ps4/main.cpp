@@ -38,6 +38,9 @@ using namespace ce;
 #define BY 124
 #define LAN_PORT 8080
 
+#ifndef ENABLE_LAN
+static unsigned g_frames = 0;
+#endif
 struct Col { Uint8 r, g, b, a; };
 static Col C(int r, int g, int b, int a = 255) { Col c = {(Uint8)r, (Uint8)g, (Uint8)b, (Uint8)a}; return c; }
 
@@ -267,14 +270,20 @@ static void lanBroadcast() {
 }
 
 #ifdef ENABLE_LAN
+static Uint32 g_frames = 0, g_lanRetryAt = 0;
+// starts the server one step per frame so the screen always shows what is about to happen
 static void lanEnsure() {
   if (app.room.srv.running()) return;
-  std::string html; for (int i = 0; WEB_INDEX_PARTS[i]; i++) html += WEB_INDEX_PARTS[i];
-  app.room.srv.html = html;
+  if (g_lanRetryAt && app.now < g_lanRetryAt) return;
+  g_lanRetryAt = 0;
+  if (app.room.srv.stage() == 0) {
+    std::string html; for (int i = 0; WEB_INDEX_PARTS[i]; i++) html += WEB_INDEX_PARTS[i];
+    app.room.srv.html = html;
+  }
   std::string err;
-  app.lanError.clear();
-  if (!app.room.start(LAN_PORT, &err)) app.lanError = err;
-  app.lanIp = net::localIp();
+  int r = app.room.srv.startStep(LAN_PORT, &err);
+  if (r == 0) { app.lanError = err; app.room.srv.stop(); g_lanRetryAt = app.now + 3000; }
+  else if (r == 2) { app.lanError.clear(); app.lanIp = net::localIp(); }
 }
 #endif
 
@@ -725,13 +734,13 @@ static void drawMenu() {
     std::string ip = app.lanIp.empty() ? "your PS4 IP (Settings > Network)" : app.lanIp;
     std::string t = "Phone: same Wi-Fi, open http://" + ip + ":" + std::to_string(LAN_PORT) + " now";
     textC(SCR_W / 2, y0 + 8 * 70 + 10, t.c_str(), 2, C(120, 200, 255));
-    std::string st = !app.lanError.empty() ? "Server error: " + app.lanError : app.room.srv.running() ? (app.room.connected() ? "Phone connected" : "Server running - waiting for phone") : "Server not running";
+    std::string st = !app.lanError.empty() ? "Server error: " + app.lanError : app.room.srv.running() ? (app.room.connected() ? "Phone connected" : "Server running - waiting for phone") : std::string("Starting server - next: ") + net::Server::stageName(app.room.srv.stage());
     textC(SCR_W / 2, y0 + 8 * 70 + 40, st.c_str(), 2, (!app.lanError.empty()) ? C(255, 120, 120) : app.room.connected() ? C(120, 220, 120) : MUT);
 #else
     textC(SCR_W / 2, y0 + 8 * 70 + 10, "LAN is not available in this build", 2, C(255, 120, 120));
 #endif
   }
-  char fb[96]; snprintf(fb, sizeof(fb), "D-pad: up/down choose, left/right change    X: confirm    last button: %d", pad.lastBtn);
+  char fb[128]; snprintf(fb, sizeof(fb), "D-pad: up/down choose, left/right change    X: confirm    last button: %d    frame: %u", pad.lastBtn, (unsigned)g_frames);
   textC(SCR_W / 2, SCR_H - 50, fb, 2, MUT);
 }
 
@@ -778,6 +787,7 @@ int main(int argc, char *argv[]) {
       if (PRESSED(pad, BTN_BACK) || (int)app.now - app.padTestStart > 90000) app.screen = S_MENU;
     }
     app.lastFrame = app.now;
+    g_frames++;
     if (app.screen == S_MENU) drawMenu();
     else if (app.screen == S_GAME) drawGame();
     else drawPadTest();

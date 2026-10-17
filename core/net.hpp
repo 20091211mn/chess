@@ -15,6 +15,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/time.h>
+#include <sys/select.h>
+#include <sys/ioctl.h>
 
 namespace net {
 
@@ -107,40 +110,79 @@ struct Event { int id; int type; std::string msg; }; // type: 0 message, 1 conne
 inline void setNonBlocking(int fd) {
   int fl = fcntl(fd, F_GETFL, 0);
   if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+#ifdef FIONBIO
+  int one = 1;
+  ioctl(fd, FIONBIO, &one); // second attempt: some platforms only honour this one
+#endif
+}
+
+// Never block, even if the socket could not be switched to non-blocking mode:
+// ask select() first. If select() itself is unavailable (<0) assume ready.
+inline bool fdReady(int fd, bool wr) {
+  if (fd < 0 || fd >= FD_SETSIZE) return true;
+  fd_set s; FD_ZERO(&s); FD_SET(fd, &s);
+  timeval tv; tv.tv_sec = 0; tv.tv_usec = 0;
+  int r = wr ? select(fd + 1, 0, &s, 0, &tv) : select(fd + 1, &s, 0, 0, &tv);
+  return r != 0; // >0 ready, <0 unknown -> try anyway
 }
 
 class Server {
  public:
   std::string html;
-  Server() : lfd(-1), nextId(1) {}
+  Server() : lfd(-1), nextId(1), stage_(0) {}
   ~Server() { stop(); }
 
+  // One startup step per call so a UI can show progress (and where a platform call hangs).
+  // returns 0 = failed (err set), 1 = step done, more to do, 2 = server is listening
+  int startStep(int port, std::string *err = 0) {
+    char buf[64];
+    switch (stage_) {
+      case 0:
+#ifdef SIGPIPE
+        signal(SIGPIPE, SIG_IGN);
+#endif
+        lfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (lfd < 0) { snprintf(buf, sizeof(buf), "socket() failed (errno %d)", errno); if (err) *err = buf; lfd = -1; return 0; }
+        break;
+      case 1: { int one = 1; setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one)); break; }
+      case 2: {
+        sockaddr_in a; memset(&a, 0, sizeof(a));
+        a.sin_family = AF_INET; a.sin_port = htons((uint16_t)port); a.sin_addr.s_addr = htonl(INADDR_ANY);
+        if (bind(lfd, (sockaddr *)&a, sizeof(a)) < 0) { snprintf(buf, sizeof(buf), "bind() failed (errno %d)", errno); if (err) *err = buf; close(lfd); lfd = -1; stage_ = 0; return 0; }
+        break; }
+      case 3:
+        if (listen(lfd, 8) < 0) { snprintf(buf, sizeof(buf), "listen() failed (errno %d)", errno); if (err) *err = buf; close(lfd); lfd = -1; stage_ = 0; return 0; }
+        break;
+      case 4: setNonBlocking(lfd); break;
+      default: return 2;
+    }
+    stage_++;
+    return stage_ >= 5 ? 2 : 1;
+  }
+  int stage() const { return stage_; }
+  static const char *stageName(int s) {
+    static const char *n[] = {"create socket", "set options", "bind port", "listen", "non-blocking", "ready"};
+    return n[s < 0 ? 0 : s > 5 ? 5 : s];
+  }
   bool start(int port, std::string *err = 0) {
     stop();
-#ifdef SIGPIPE
-    signal(SIGPIPE, SIG_IGN);
-#endif
-    lfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (lfd < 0) { if (err) *err = "socket() failed"; return false; }
-    int one = 1;
-    setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one));
-    sockaddr_in a; memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET; a.sin_port = htons((uint16_t)port); a.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bind(lfd, (sockaddr *)&a, sizeof(a)) < 0) { if (err) *err = "bind() failed"; close(lfd); lfd = -1; return false; }
-    if (listen(lfd, 8) < 0) { if (err) *err = "listen() failed"; close(lfd); lfd = -1; return false; }
-    setNonBlocking(lfd);
-    return true;
+    for (;;) {
+      int r = startStep(port, err);
+      if (r == 0) return false;
+      if (r == 2) return true;
+    }
   }
   void stop() {
     for (size_t i = 0; i < cl.size(); i++) close(cl[i].fd);
     cl.clear();
     if (lfd >= 0) { close(lfd); lfd = -1; }
+    stage_ = 0;
   }
-  bool running() const { return lfd >= 0; }
+  bool running() const { return lfd >= 0 && stage_ >= 5; }
 
   void poll() {
-    if (lfd < 0) return;
-    for (;;) {
+    if (!running()) return;
+    for (int guard = 0; guard < 8 && fdReady(lfd, false); guard++) {
       int fd = accept(lfd, 0, 0);
       if (fd < 0) break;
       if (cl.size() >= 8) { close(fd); continue; }
@@ -154,14 +196,14 @@ class Server {
       Client &c = cl[i];
       bool dead = false;
       char buf[4096];
-      for (;;) {
-        ssize_t n = recv(c.fd, buf, sizeof(buf), 0);
+      for (int guard = 0; guard < 16 && fdReady(c.fd, false); guard++) {
+        ssize_t n = recv(c.fd, buf, sizeof(buf), RECV_FLAGS());
         if (n > 0) { c.in.append(buf, (size_t)n); if (c.in.size() > 70000) { dead = true; break; } }
         else if (n == 0) { dead = true; break; }
         else { if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) dead = true; break; }
       }
       if (!dead) process(c);
-      if (!c.out.empty()) {
+      if (!c.out.empty() && fdReady(c.fd, true)) {
         ssize_t n = ::send(c.fd, c.out.data(), c.out.size(), SEND_FLAGS());
         if (n > 0) c.out.erase(0, (size_t)n);
         else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) dead = true;
@@ -185,15 +227,25 @@ class Server {
   int wsCount() const { int n = 0; for (size_t i = 0; i < cl.size(); i++) if (cl[i].ws) n++; return n; }
 
  private:
-  int lfd, nextId;
+  int lfd, nextId, stage_;
   std::vector<Client> cl;
   std::deque<Event> ev;
 
   static int IPPROTO_TCP_NODELAY_LEVEL() { return 6; } // IPPROTO_TCP
   static int TCP_NODELAY_OPT() { return 1; }           // TCP_NODELAY
   static int SEND_FLAGS() {
+    int f = 0;
 #ifdef MSG_NOSIGNAL
-    return MSG_NOSIGNAL;
+    f |= MSG_NOSIGNAL;
+#endif
+#ifdef MSG_DONTWAIT
+    f |= MSG_DONTWAIT;
+#endif
+    return f;
+  }
+  static int RECV_FLAGS() {
+#ifdef MSG_DONTWAIT
+    return MSG_DONTWAIT;
 #else
     return 0;
 #endif

@@ -102,7 +102,7 @@ int main() {
   dir(RIGHT);
   check([] { CHECK(app.menuSel == 0 && app.mode == M_LAN); });
   // phone opens the page while the PS4 is still on the menu
-  wait(5);
+  wait(20);
   check([] { CHECK(app.screen == S_MENU && app.room.srv.running());
     phone = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(8080); inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
     CHECK(connect(phone, (sockaddr *)&a, sizeof(a)) == 0); net::setNonBlocking(phone);
