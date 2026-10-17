@@ -27,6 +27,7 @@ struct LanRoom {
   int phoneSide;   // side controlled by the phone
   int phoneId;     // controlling client id (0 = none)
   std::string last;
+  std::string lockMsg; // non-empty: game not started yet, moves are refused with this message
 
   LanRoom() : phoneSide(BLACK), phoneId(0) {}
   bool start(int port, std::string *err = 0) { return srv.start(port, err); }
@@ -57,12 +58,13 @@ struct LanRoom {
       if (e.type == 1) {
         if (!phoneId) phoneId = e.id; else spectators.push_back(e.id);
         out.connected = true;
-        sendState(g, e.id);
+        sendState(g, e.id, lockMsg);
       } else if (e.type == 2) {
         if (e.id == phoneId) { phoneId = 0; out.disconnected = true; if (!spectators.empty()) { phoneId = spectators.front(); spectators.erase(spectators.begin()); } }
         else for (size_t i = 0; i < spectators.size(); i++) if (spectators[i] == e.id) { spectators.erase(spectators.begin() + (long)i); break; }
       } else {
         const std::string &m = e.msg;
+        if (!lockMsg.empty()) { sendState(g, e.id, lockMsg); continue; }
         if (m.compare(0, 5, "move ") == 0) {
           std::string u = m.substr(5);
           if (e.id != phoneId) sendState(g, e.id, "spectator");

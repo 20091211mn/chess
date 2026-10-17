@@ -101,15 +101,23 @@ int main() {
   for (int i = 0; i < 7; i++) dir(UP);
   dir(RIGHT);
   check([] { CHECK(app.menuSel == 0 && app.mode == M_LAN); });
-  for (int i = 0; i < 7; i++) dir(DOWN);
-  tap(0);
-  check([] { CHECK(app.screen == S_GAME && app.room.srv.running() && app.humanSide == WHITE);
+  // phone opens the page while the PS4 is still on the menu
+  wait(5);
+  check([] { CHECK(app.screen == S_MENU && app.room.srv.running());
     phone = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(8080); inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
     CHECK(connect(phone, (sockaddr *)&a, sizeof(a)) == 0); net::setNonBlocking(phone);
     std::string req = "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
     send(phone, req.data(), req.size(), 0); });
   wait(10);
-  check([] { phoneRead(); CHECK(phoneBuf.find("101 Switching") != std::string::npos); CHECK(phoneBuf.find("\"you\":\"b\"") != std::string::npos); CHECK(app.room.connected()); phoneBuf.clear(); });
+  check([] { phoneRead(); CHECK(phoneBuf.find("101 Switching") != std::string::npos); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos);
+    phoneBuf.clear(); phoneSend("move e7e5"); });
+  wait(10);
+  check([] { phoneRead(); CHECK(app.game.plies() == 0); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos); phoneBuf.clear(); });
+  for (int i = 0; i < 7; i++) dir(DOWN);
+  tap(0);
+  check([] { CHECK(app.screen == S_GAME && app.room.srv.running() && app.humanSide == WHITE); });
+  wait(10);
+  check([] { phoneRead(); CHECK(phoneBuf.find("\"you\":\"b\"") != std::string::npos); CHECK(phoneBuf.find("Waiting for the game") == std::string::npos || phoneBuf.rfind("\"you\":\"b\"") > phoneBuf.rfind("Waiting for the game")); CHECK(app.room.connected()); phoneBuf.clear(); });
   // PS4 (white) plays e2e4, phone must receive it
   tap(0); dir(UP); dir(UP); tap(0); wait(10);
   check([] { phoneRead(); CHECK(app.game.plies() == 1); CHECK(phoneBuf.find("\"last\":\"e2e4\"") != std::string::npos); phoneBuf.clear(); phoneSend("move e7e5"); });

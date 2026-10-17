@@ -3,7 +3,11 @@
 #include <stdint.h>
 typedef uint8_t Uint8; typedef uint32_t Uint32; typedef int16_t Sint16;
 typedef struct {int x,y,w,h;} SDL_Rect; typedef struct SDL_Window SDL_Window; typedef struct SDL_Renderer SDL_Renderer; typedef struct SDL_Texture SDL_Texture; typedef struct SDL_Joystick SDL_Joystick;
-typedef union SDL_Event { uint32_t type; } SDL_Event;
+typedef union SDL_Event { uint32_t type; struct {uint32_t type; uint8_t button;} jbutton; struct {uint32_t type; uint8_t value;} jhat; struct {uint32_t type; uint8_t axis; int16_t value;} jaxis; } SDL_Event;
+#define SDL_JOYAXISMOTION 0x600
+#define SDL_JOYHATMOTION 0x602
+#define SDL_JOYBUTTONDOWN 0x603
+#define SDL_JOYBUTTONUP 0x604
 #define SDL_QUIT 1
 #define SDL_HAT_UP 1
 #define SDL_HAT_RIGHT 2

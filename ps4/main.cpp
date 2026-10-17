@@ -142,24 +142,37 @@ static const int BTN_SEL[] = {0}, BTN_BACK[] = {1}, BTN_FLIP[] = {2}, BTN_UNDO[]
 
 struct Pad {
   SDL_Joystick *j;
-  bool btn[32], prev[32];
-  int hat, ax[6], nb, na, lastDx, lastDy;
+  bool btn[32], prev[32], evBtn[32];
+  int hat, ax[6], nb, na, lastDx, lastDy, evHat, evAx[6], lastBtn;
   Uint32 nextRep;
-  Pad() : j(0), hat(0), nb(0), na(0), lastDx(0), lastDy(0), nextRep(0) {
+  Pad() : j(0), hat(0), nb(0), na(0), lastDx(0), lastDy(0), evHat(0), lastBtn(-1), nextRep(0) {
     memset(btn, 0, sizeof(btn)); memset(prev, 0, sizeof(prev)); memset(ax, 0, sizeof(ax));
+    memset(evBtn, 0, sizeof(evBtn)); memset(evAx, 0, sizeof(evAx));
+  }
+  // events are used in addition to polling: some SDL ports only report input through events
+  void onEvent(const SDL_Event &e) {
+    if (e.type == SDL_JOYBUTTONDOWN && e.jbutton.button < 32) { evBtn[e.jbutton.button] = true; lastBtn = e.jbutton.button; }
+    else if (e.type == SDL_JOYBUTTONUP && e.jbutton.button < 32) evBtn[e.jbutton.button] = false;
+    else if (e.type == SDL_JOYHATMOTION) evHat = e.jhat.value;
+    else if (e.type == SDL_JOYAXISMOTION && e.jaxis.axis < 6) evAx[e.jaxis.axis] = e.jaxis.value;
   }
   void poll(Uint32 now, int &mx, int &my) {
     mx = my = 0;
     if (!j && SDL_NumJoysticks() > 0) j = SDL_JoystickOpen(0);
     memcpy(prev, btn, sizeof(btn));
     memset(btn, 0, sizeof(btn)); hat = 0;
-    if (!j) return;
-    SDL_JoystickUpdate();
-    nb = SDL_JoystickNumButtons(j); if (nb > 32) nb = 32;
-    for (int i = 0; i < nb; i++) btn[i] = SDL_JoystickGetButton(j, i) != 0;
-    na = SDL_JoystickNumAxes(j); if (na > 6) na = 6;
-    for (int i = 0; i < na; i++) ax[i] = SDL_JoystickGetAxis(j, i);
-    if (SDL_JoystickNumHats(j) > 0) hat = SDL_JoystickGetHat(j, 0);
+    if (j) {
+      SDL_JoystickUpdate();
+      nb = SDL_JoystickNumButtons(j); if (nb > 32) nb = 32;
+      for (int i = 0; i < nb; i++) btn[i] = SDL_JoystickGetButton(j, i) != 0;
+      na = SDL_JoystickNumAxes(j); if (na > 6) na = 6;
+      for (int i = 0; i < na; i++) ax[i] = SDL_JoystickGetAxis(j, i);
+      if (SDL_JoystickNumHats(j) > 0) hat = SDL_JoystickGetHat(j, 0);
+    }
+    for (int i = 0; i < 32; i++) { if (evBtn[i]) btn[i] = true; if (btn[i] && !prev[i]) lastBtn = i; }
+    hat |= evHat;
+    for (int i = 0; i < 6; i++) if (!ax[i]) ax[i] = evAx[i];
+    if (na < 2) na = 2;
     int dx = 0, dy = 0;
     if (hat & SDL_HAT_LEFT) dx = -1; if (hat & SDL_HAT_RIGHT) dx = 1;
     if (hat & SDL_HAT_UP) dy = -1; if (hat & SDL_HAT_DOWN) dy = 1;
@@ -253,6 +266,18 @@ static void lanBroadcast() {
 #endif
 }
 
+#ifdef ENABLE_LAN
+static void lanEnsure() {
+  if (app.room.srv.running()) return;
+  std::string html; for (int i = 0; WEB_INDEX_PARTS[i]; i++) html += WEB_INDEX_PARTS[i];
+  app.room.srv.html = html;
+  std::string err;
+  app.lanError.clear();
+  if (!app.room.start(LAN_PORT, &err)) app.lanError = err;
+  app.lanIp = net::localIp();
+}
+#endif
+
 static void startAnim(const Pos &before, const Move &m) {
   Uint32 now = app.now;
   int pc = before.b[m.from];
@@ -298,13 +323,8 @@ static void startGame() {
 #ifdef ENABLE_LAN
   if (app.mode == M_LAN) {
     app.room.phoneSide = app.humanSide ^ 1; app.room.last.clear();
-    if (!app.room.srv.running()) {
-      std::string html; for (int i = 0; WEB_INDEX_PARTS[i]; i++) html += WEB_INDEX_PARTS[i];
-      app.room.srv.html = html;
-      std::string err;
-      if (!app.room.start(LAN_PORT, &err)) app.lanError = err;
-    }
-    app.lanIp = net::localIp();
+    app.room.lockMsg.clear();
+    lanEnsure();
     lanBroadcast();
   } else app.room.stop();
 #endif
@@ -313,7 +333,8 @@ static void startGame() {
 static void toMenu() {
   app.screen = S_MENU; app.paused = false;
 #ifdef ENABLE_LAN
-  app.room.stop();
+  if (app.mode != M_LAN) app.room.stop();
+  else app.room.lockMsg = "Waiting for the game to start on the PS4...";
   app.lanIp = net::localIp();
 #endif
 }
@@ -375,6 +396,14 @@ static void changeMenu(int row, int d) {
 }
 
 static void updateMenu(int mx, int my) {
+#ifdef ENABLE_LAN
+  // the phone page is reachable as soon as LAN mode is selected (no need to press START first)
+  if (app.mode == M_LAN) {
+    lanEnsure();
+    app.room.lockMsg = "Waiting for the game to start on the PS4...";
+    LanEvents ev; app.room.update(app.game, ev);
+  } else if (app.room.srv.running()) app.room.stop();
+#endif
   if (my) app.menuSel = (app.menuSel + my + 8) % 8;
   if (mx) changeMenu(app.menuSel, mx);
   if (PRESSED(pad, BTN_SEL)) {
@@ -694,13 +723,16 @@ static void drawMenu() {
   if (app.mode == M_LAN) {
 #ifdef ENABLE_LAN
     std::string ip = app.lanIp.empty() ? "your PS4 IP (Settings > Network)" : app.lanIp;
-    std::string t = "Phone: connect to the same Wi-Fi, open http://" + ip + ":" + std::to_string(LAN_PORT);
+    std::string t = "Phone: same Wi-Fi, open http://" + ip + ":" + std::to_string(LAN_PORT) + " now";
     textC(SCR_W / 2, y0 + 8 * 70 + 10, t.c_str(), 2, C(120, 200, 255));
+    std::string st = !app.lanError.empty() ? "Server error: " + app.lanError : app.room.srv.running() ? (app.room.connected() ? "Phone connected" : "Server running - waiting for phone") : "Server not running";
+    textC(SCR_W / 2, y0 + 8 * 70 + 40, st.c_str(), 2, (!app.lanError.empty()) ? C(255, 120, 120) : app.room.connected() ? C(120, 220, 120) : MUT);
 #else
     textC(SCR_W / 2, y0 + 8 * 70 + 10, "LAN is not available in this build", 2, C(255, 120, 120));
 #endif
   }
-  textC(SCR_W / 2, SCR_H - 50, "D-pad: up/down choose, left/right change    X: confirm", 2, MUT);
+  char fb[96]; snprintf(fb, sizeof(fb), "D-pad: up/down choose, left/right change    X: confirm    last button: %d", pad.lastBtn);
+  textC(SCR_W / 2, SCR_H - 50, fb, 2, MUT);
 }
 
 static void drawPadTest() {
@@ -736,7 +768,7 @@ int main(int argc, char *argv[]) {
   bool run = true;
   while (run) {
     SDL_Event e;
-    while (SDL_PollEvent(&e)) if (e.type == SDL_QUIT) run = false;
+    while (SDL_PollEvent(&e)) { if (e.type == SDL_QUIT) run = false; pad.onEvent(e); }
     app.now = SDL_GetTicks();
     int mx, my;
     pad.poll(app.now, mx, my);
