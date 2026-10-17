@@ -11,7 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y clang lld llvm unzip
+        run: sudo apt-get update && sudo apt-get install -y clang lld llvm unzip python3
+      - name: Regenerate embedded web page
+        run: python3 tools/gen_web.py
       - name: Download OpenOrbis toolchain
         run: |
           mkdir -p tc && cd tc
@@ -22,27 +24,33 @@ jobs:
           ROOT=$(dirname "$S")
           echo "OO_PS4_TOOLCHAIN=$ROOT" >> $GITHUB_ENV
           chmod -R +x "$ROOT/bin" || true
-      - name: Prepare chess from SDL sample
+      - name: Prepare project from SDL sample
         run: |
           D=$(find "$OO_PS4_TOOLCHAIN/samples" -maxdepth 1 -type d -ipath '*sdl*' | head -1)
           N=$(basename "$D")
           mkdir -p work && cp -r "$D" "work/$N"
           echo "PROJ=work/$N" >> $GITHUB_ENV
-          echo "=== tree ==="; find "work/$N" -maxdepth 3 | head -60
-          echo "=== Makefile ==="; sed -n 1,70p "work/$N/Makefile"
           if [ -d "work/$N/$N" ]; then T="work/$N/$N"; else T="work/$N"; fi
-          echo "Target dir: $T"
+          echo "TGT=$T" >> $GITHUB_ENV
+          echo "Target dir: $T"; find "work/$N" -maxdepth 3 | head -50
           find "$T" -maxdepth 1 -type f \( -name '*.c' -o -name '*.cpp' \) -delete
-          { echo '#include <sstream>'; echo 'std::stringstream debugLogStream;'; cat ps4/main.c; } > "$T/main.cpp"
-          cp ps4/chess_engine.h "$T/"
-      - name: Icon
-        run: |
-          I=$(find "$PROJ" -name icon0.png | head -1)
+          { echo '#include <sstream>'; echo 'std::stringstream debugLogStream;'; cat ps4/main.cpp; } > "$T/main.cpp"
+          cp core/*.hpp core/web_html.h ps4/font.hpp ps4/pieces.hpp "$T/"
+          touch "$T/lan_enabled.h"
+          I=$(find "work/$N" -name icon0.png | head -1)
           echo "icon: $I"; cp ps4/icon0.png "$I"
-      - name: Build PKG
+      - name: Build PKG (with LAN)
+        id: lan
+        continue-on-error: true
+        run: cd "$PROJ" && make
+      - name: Build PKG (fallback without LAN)
+        if: steps.lan.outcome == 'failure'
         run: |
-          cd "$PROJ" && make
-          find . -name '*.pkg'
+          echo "::warning::LAN build failed - building without LAN support"
+          rm -f "$TGT/lan_enabled.h"
+          cd "$PROJ" && rm -rf build && make
+      - name: List PKG
+        run: find "$PROJ" -name '*.pkg'
       - uses: actions/upload-artifact@v4
         with:
           name: chess-ps4-pkg

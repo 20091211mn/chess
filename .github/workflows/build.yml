@@ -1,9 +1,11 @@
-name: build
-on: [push]
+name: tests
+on: [push, workflow_dispatch]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - run: g++ test.cpp -o test && ./test
-      - run: g++ main.cpp -o chess
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Run all tests
+        run: sh tests/run_all.sh
