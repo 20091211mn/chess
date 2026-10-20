@@ -1,0 +1,1 @@
+package android.app; import android.content.Context; import android.os.Bundle; import android.view.View; import android.view.Window; public class Activity extends Context { public Window getWindow() { return new Window(); } protected void onCreate(Bundle b) {} public void onBackPressed() {} public void setContentView(View v) {} }

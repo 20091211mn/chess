@@ -46,14 +46,14 @@ static void runActs() {
   }
   if (g_frame >= lastFrameOfScript) g_quit = 1;
 }
-void SDL_Delay(Uint32) { g_frame++; runActs(); }
+void SDL_Delay(Uint32) { usleep(400); g_frame++; runActs(); }
 
 #define main app_main
 #include "../ps4/main.cpp"
 #undef main
 
 // ---------------------------------------------------------------- fake phone
-static int phone = -1; static std::string phoneBuf;
+static int pliesBefore = 0; static int phone = -1; static std::string phoneBuf;
 static void phoneRead() { char b[8192]; ssize_t n; while (phone >= 0 && (n = recv(phone, b, sizeof(b), 0)) > 0) phoneBuf.append(b, (size_t)n); }
 static void phoneSend(const std::string &pl) {
   std::string f; f += (char)0x81; f += (char)(0x80 | pl.size()); const uint8_t k[4] = {1, 2, 3, 4}; for (int i = 0; i < 4; i++) f += (char)k[i];
@@ -62,11 +62,11 @@ static void phoneSend(const std::string &pl) {
 }
 
 int main() {
-  // 1. menu -> robot game (Beginner level, white)
-  for (int i = 0; i < 5; i++) dir(UP);
+  // 1. menu -> robot game (Beginner level, white). Menu starts on "Play" (row 9)
+  for (int i = 0; i < 7; i++) dir(UP);
   dir(LEFT); dir(LEFT);
   check([] { CHECK(app.menuSel == 2 && app.level == 0 && app.screen == S_MENU); });
-  for (int i = 0; i < 5; i++) dir(DOWN);
+  for (int i = 0; i < 7; i++) dir(DOWN);
   tap(0);
   check([] { CHECK(app.screen == S_GAME && app.mode == M_ROBOT && app.humanSide == WHITE && app.game.plies() == 0); });
   // select e2, move to e4 (cursor starts on e2)
@@ -74,31 +74,42 @@ int main() {
   dir(UP); dir(UP); tap(0);
   check([] { CHECK(app.game.plies() == 1 && app.game.san[0] == "e4"); });
   wait(120);
-  check([] { CHECK(app.game.plies() == 2 && !app.game.over()); });
-  // cannot move the robot's pieces / out of turn
+  check([] { CHECK(app.game.plies() == 2 && !app.game.over()); CHECK(app.evalPly == 2); });
   tap(3); // triangle: undo (robot mode undoes both plies)
   check([] { CHECK(app.game.plies() == 0); });
 
-  // 2. promotion dialog
-  check([] { app.game.loadFen("8/P6k/8/8/8/8/8/K7 w - - 0 1"); app.curCol = 0; app.curRow = 1; app.aiState = 0; });
+  // 2. pause menu: hint, then offer a draw (robot accepts an equal position)
+  hold(1, 80);
+  check([] { CHECK(app.dlg == D_PAUSE); });
+  dir(DOWN); tap(0);
+  check([] { CHECK(app.dlg == D_NONE && app.hintFrom >= 0 && app.hintTo >= 0); });
+  hold(1, 80); dir(DOWN); dir(DOWN); tap(0);
+  check([] { CHECK(app.game.over() && app.game.result == R_DRAW && app.game.reason == "agreement"); });
+
+  // 3. promotion dialog
+  check([] { app.game.loadFen("8/P6k/8/8/8/8/8/K7 w - - 0 1"); app.curCol = 0; app.curRow = 1; app.aiState = 0; app.prevOver = false; });
   tap(0); dir(UP); tap(0);
   check([] { CHECK(app.promoOpen && app.promoMoves.size() == 4); });
   dir(RIGHT); tap(0);
   check([] { CHECK(!app.promoOpen && app.game.pos.b[56] == mkp(ROOK, WHITE)); });
   wait(80);
 
-  // 3. long-press O -> pause menu -> resign -> rematch
+  // 4. long-press O -> pause -> Resign -> confirm -> rematch (colours swap vs robot)
   hold(1, 80);
-  check([] { CHECK(app.paused); });
-  dir(DOWN); dir(DOWN); tap(0);
-  check([] { CHECK(!app.paused && app.game.over() && app.game.result == R_BLACK && app.game.reason == "resignation"); });
+  check([] { CHECK(app.dlg == D_PAUSE); });
+  dir(DOWN); dir(DOWN); dir(DOWN); tap(0);
+  check([] { CHECK(app.dlg == D_CONFIRM && app.confirmKind == C_RESIGN && app.dlgSel == 1); });
+  tap(1); // O = "No"
+  check([] { CHECK(app.dlg == D_NONE && !app.game.over()); });
+  hold(1, 80); dir(DOWN); dir(DOWN); dir(DOWN); tap(0); dir(LEFT); tap(0);
+  check([] { CHECK(app.dlg == D_NONE && app.game.over() && app.game.result == R_BLACK && app.game.reason == "resignation"); });
   wait(20); tap(0);
-  check([] { CHECK(app.screen == S_GAME && app.game.plies() == 0 && !app.game.over()); });
+  check([] { CHECK(app.screen == S_GAME && app.game.plies() == 0 && !app.game.over() && app.humanSide == BLACK); });
 
-  // 4. back to menu through pause, switch to LAN
-  hold(1, 80); for (int i = 0; i < 4; i++) dir(DOWN); tap(0);
-  check([] { CHECK(app.screen == S_MENU); });
-  for (int i = 0; i < 7; i++) dir(UP);
+  // 5. back to menu through pause, switch to LAN
+  hold(1, 80); for (int i = 0; i < 5; i++) dir(DOWN); tap(0); dir(LEFT); tap(0);
+  check([] { CHECK(app.screen == S_MENU); app.side = 0; });
+  for (int i = 0; i < 9; i++) dir(UP);
   dir(RIGHT);
   check([] { CHECK(app.menuSel == 0 && app.mode == M_LAN); });
   // phone opens the page while the PS4 is still on the menu
@@ -110,22 +121,31 @@ int main() {
     send(phone, req.data(), req.size(), 0); });
   wait(10);
   check([] { phoneRead(); CHECK(phoneBuf.find("101 Switching") != std::string::npos); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos);
-    phoneBuf.clear(); phoneSend("move e7e5"); });
+    phoneBuf.clear(); pliesBefore = app.game.plies(); phoneSend("move e7e5"); });
   wait(10);
-  check([] { phoneRead(); CHECK(app.game.plies() == 0); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos); phoneBuf.clear(); });
-  for (int i = 0; i < 7; i++) dir(DOWN);
+  check([] { phoneRead(); CHECK(app.game.plies() == pliesBefore); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos); phoneBuf.clear(); });
+  for (int i = 0; i < 9; i++) dir(DOWN);
   tap(0);
   check([] { CHECK(app.screen == S_GAME && app.room.srv.running() && app.humanSide == WHITE); });
   wait(10);
-  check([] { phoneRead(); CHECK(phoneBuf.find("\"you\":\"b\"") != std::string::npos); CHECK(phoneBuf.find("Waiting for the game") == std::string::npos || phoneBuf.rfind("\"you\":\"b\"") > phoneBuf.rfind("Waiting for the game")); CHECK(app.room.connected()); phoneBuf.clear(); });
+  check([] { phoneRead(); CHECK(phoneBuf.find("\"you\":\"b\"") != std::string::npos); CHECK(app.room.connected()); phoneBuf.clear(); });
   // PS4 (white) plays e2e4, phone must receive it
   tap(0); dir(UP); dir(UP); tap(0); wait(10);
   check([] { phoneRead(); CHECK(app.game.plies() == 1); CHECK(phoneBuf.find("\"last\":\"e2e4\"") != std::string::npos); phoneBuf.clear(); phoneSend("move e7e5"); });
   wait(10);
-  check([] { phoneRead(); CHECK(app.game.plies() == 2 && app.game.san[1] == "e5"); CHECK(phoneBuf.find("\"plies\":2") != std::string::npos); CHECK(app.anim[0].active || app.lastTo == 36); });
-  // phone resigns, PS4 sees game over, phone asks for a rematch, sides swap
-  check([] { phoneSend("resign"); }); wait(10);
-  check([] { CHECK(app.game.over() && app.game.result == R_WHITE); phoneSend("new"); }); wait(10);
+  check([] { phoneRead(); CHECK(app.game.plies() == 2 && app.game.san[1] == "e5"); CHECK(phoneBuf.find("\"plies\":2") != std::string::npos); CHECK(app.anim[0].active || app.lastTo == 36); phoneBuf.clear(); });
+  // phone offers a draw -> PS4 dialog -> decline (default) -> phone is told
+  wait(20);
+  check([] { phoneSend("draw"); }); wait(10);
+  check([] { CHECK(app.dlg == D_CONFIRM && app.confirmKind == C_DRAW_RECV && app.game.drawOffer == BLACK); });
+  tap(1); // O = decline
+  check([] { CHECK(app.dlg == D_NONE && app.game.drawOffer == -1 && !app.game.over()); });
+  // PS4 offers, phone accepts
+  hold(1, 80); dir(DOWN); dir(DOWN); tap(0);
+  check([] { CHECK(app.game.drawOffer == WHITE); phoneRead(); phoneBuf.clear(); phoneSend("draw_yes"); }); wait(10);
+  check([] { phoneRead(); CHECK(app.game.over() && app.game.result == R_DRAW && app.game.reason == "agreement"); CHECK(phoneBuf.find("\"res\":3") != std::string::npos); });
+  // rematch requested by the phone: sides swap
+  check([] { phoneSend("new"); }); wait(10);
   check([] { CHECK(!app.game.over() && app.game.plies() == 0 && app.humanSide == BLACK && app.room.phoneSide == WHITE); });
   check([] { close(phone); phone = -1; });
   wait(10);

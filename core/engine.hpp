@@ -422,6 +422,7 @@ struct Game {
   std::string reason;
   int64_t clk[2];
   int64_t initMs, incMs;
+  int drawOffer; // -1 none, otherwise the side that offered a draw
 
   Game() { reset(); }
 
@@ -430,7 +431,7 @@ struct Game {
     hist.clear(); moves.clear(); san.clear(); keys.clear();
     times[0].clear(); times[1].clear();
     keys.push_back(posKey(pos));
-    result = R_NONE; reason.clear();
+    result = R_NONE; reason.clear(); drawOffer = -1;
     initMs = initTimeMs; incMs = incrementMs;
     clk[0] = clk[1] = initTimeMs;
   }
@@ -439,7 +440,7 @@ struct Game {
     hist.clear(); moves.clear(); san.clear(); keys.clear();
     times[0].clear(); times[1].clear();
     keys.push_back(posKey(pos));
-    result = R_NONE; reason.clear();
+    result = R_NONE; reason.clear(); drawOffer = -1;
     updateStatus();
     return true;
   }
@@ -475,6 +476,7 @@ struct Game {
     moves.push_back(real);
     times[0].push_back((int)clk[0]); times[1].push_back((int)clk[1]);
     int mover = pos.side;
+    drawOffer = -1;
     makeMove(pos, real);
     if (initMs > 0 && moves.size() > 1) clk[mover] += incMs;
     keys.push_back(posKey(pos));
@@ -491,8 +493,17 @@ struct Game {
     pos = hist.back(); hist.pop_back(); moves.pop_back(); san.pop_back(); keys.pop_back();
     clk[0] = times[0].back(); clk[1] = times[1].back();
     times[0].pop_back(); times[1].pop_back();
-    result = R_NONE; reason.clear();
+    result = R_NONE; reason.clear(); drawOffer = -1;
     return true;
+  }
+  bool offerDraw(int side) {
+    if (over() || drawOffer >= 0) return false;
+    drawOffer = side; return true;
+  }
+  void answerDraw(bool accept) {
+    if (drawOffer < 0 || over()) return;
+    if (accept) { result = R_DRAW; reason = "agreement"; }
+    drawOffer = -1;
   }
   void resign(int side) {
     if (over()) return;

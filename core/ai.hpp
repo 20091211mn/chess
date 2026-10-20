@@ -187,6 +187,15 @@ struct Searcher {
   }
 };
 
+// centipawn evaluation from White's point of view (shallow search, for the eval bar). Mates -> +-30000.
+inline int evalWhiteCp(const Pos &p, long nodes = 40000) {
+  if (!hasLegal(p)) return inCheck(p, p.side) ? (p.side == WHITE ? -30000 : 30000) : 0;
+  Searcher s; s.maxNodes = nodes; s.rootDepth = 2;
+  int sc = s.search(p, 2, -100000, 100000, 0);
+  if (s.stop) sc = Searcher::evaluate(p);
+  return p.side == WHITE ? sc : -sc;
+}
+
 inline Move aiMove(const Pos &p, int level, int *score = 0) {
   static Searcher s;
   if (level < 0) level = 0;

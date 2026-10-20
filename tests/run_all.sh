@@ -7,6 +7,7 @@ echo "== engine (perft + rules)"; $CXX -O2 -std=c++11 tests/test_engine.cpp -o "
 echo "== ai";                    $CXX -O2 -std=c++11 tests/test_ai.cpp -o "$OUT/ta" && "$OUT/ta" | tail -4
 echo "== net/lan";               $CXX -O1 -std=c++11 tests/test_net.cpp -o "$OUT/tn" && "$OUT/tn" | tail -2
 echo "== PS4 UI (stub SDL)";     $CXX -O1 -w -std=c++11 -Itests/stub -Icore -Ips4 tests/test_app.cpp -o "$OUT/tp" && "$OUT/tp" | tail -2
+echo "== QR code";                $CXX -std=c++11 tests/qr_dump.cpp -o "$OUT/qd" && python3 tests/test_qr.py "$OUT/qd"
 echo "== phone web client";
 if command -v node >/dev/null 2>&1; then
   $CXX -std=c++11 -I. tests/gen_state.cpp -o "$OUT/gs"
@@ -20,4 +21,8 @@ open('$OUT/client.js','w').write(re.search(r'<script>(.*)</script>',h,re.S).grou
   python3 tools/gen_web.py >/dev/null && git diff --quiet core/web_html.h 2>/dev/null || true
   node tests/test_web.js "$OUT"
 else echo "node not installed - skipped"; fi
+echo "== Android app logic (discovery against the real server)"
+if command -v java >/dev/null 2>&1 && java --list-modules 2>/dev/null | grep -q jdk.compiler; then
+  $CXX -O2 -std=c++11 tools/server.cpp -o "$OUT/chessweb" && java android/tests/RunTests.java "$OUT/chessweb" android | tail -3
+else echo "JDK not installed - skipped"; fi
 echo "ALL SUITES DONE"

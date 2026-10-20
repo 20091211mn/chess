@@ -103,8 +103,12 @@ inline std::string headerValue(const std::string &req, const std::string &name) 
 struct Client {
   int fd, id;
   bool ws, closing;
+  uint32_t lastRx, born;
   std::string in, out, frag;
 };
+struct Route { std::string path, mime, body; };
+
+inline uint32_t nowMs() { timeval tv; gettimeofday(&tv, 0); return (uint32_t)(tv.tv_sec * 1000u + tv.tv_usec / 1000u); }
 struct Event { int id; int type; std::string msg; }; // type: 0 message, 1 connected, 2 disconnected
 
 inline void setNonBlocking(int fd) {
@@ -129,7 +133,7 @@ inline bool fdReady(int fd, bool wr) {
 class Server {
  public:
   std::string html;
-  Server() : lfd(-1), nextId(1), stage_(0) {}
+  Server() : lfd(-1), ufd(-1), nextId(1), stage_(0), port_(0) {}
   ~Server() { stop(); }
 
   // One startup step per call so a UI can show progress (and where a platform call hangs).
@@ -153,16 +157,27 @@ class Server {
       case 3:
         if (listen(lfd, 8) < 0) { snprintf(buf, sizeof(buf), "listen() failed (errno %d)", errno); if (err) *err = buf; close(lfd); lfd = -1; stage_ = 0; return 0; }
         break;
-      case 4: setNonBlocking(lfd); break;
+      case 4: setNonBlocking(lfd); port_ = port; break;
+      case 5: { // optional: answer "PS4CHESS?" broadcasts so the Android app can find this console by itself
+        ufd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (ufd >= 0) {
+          int one = 1;
+          setsockopt(ufd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one));
+          setsockopt(ufd, SOL_SOCKET, SO_BROADCAST, (const char *)&one, sizeof(one));
+          sockaddr_in a; memset(&a, 0, sizeof(a));
+          a.sin_family = AF_INET; a.sin_port = htons((uint16_t)(port + 1)); a.sin_addr.s_addr = htonl(INADDR_ANY);
+          if (bind(ufd, (sockaddr *)&a, sizeof(a)) < 0) { close(ufd); ufd = -1; } else setNonBlocking(ufd);
+        }
+        break; }
       default: return 2;
     }
     stage_++;
-    return stage_ >= 5 ? 2 : 1;
+    return stage_ >= 6 ? 2 : 1;
   }
   int stage() const { return stage_; }
   static const char *stageName(int s) {
-    static const char *n[] = {"create socket", "set options", "bind port", "listen", "non-blocking", "ready"};
-    return n[s < 0 ? 0 : s > 5 ? 5 : s];
+    static const char *n[] = {"create socket", "set options", "bind port", "listen", "non-blocking", "discovery", "ready"};
+    return n[s < 0 ? 0 : s > 6 ? 6 : s];
   }
   bool start(int port, std::string *err = 0) {
     stop();
@@ -176,12 +191,23 @@ class Server {
     for (size_t i = 0; i < cl.size(); i++) close(cl[i].fd);
     cl.clear();
     if (lfd >= 0) { close(lfd); lfd = -1; }
+    if (ufd >= 0) { close(ufd); ufd = -1; }
     stage_ = 0;
   }
-  bool running() const { return lfd >= 0 && stage_ >= 5; }
+  bool running() const { return lfd >= 0 && stage_ >= 6; }
 
-  void poll() {
+  void poll(uint32_t now = 0) {
     if (!running()) return;
+    if (!now) now = nowMs();
+    for (int guard = 0; ufd >= 0 && guard < 8 && fdReady(ufd, false); guard++) {
+      char pb[64]; sockaddr_in from; socklen_t fl = sizeof(from);
+      ssize_t n = recvfrom(ufd, pb, sizeof(pb), 0, (sockaddr *)&from, &fl);
+      if (n < 0) break;
+      if (n >= 9 && memcmp(pb, "PS4CHESS?", 9) == 0) {
+        std::string reply = "PS4CHESS|" + std::to_string(port_) + "|PS4 Chess";
+        sendto(ufd, reply.data(), reply.size(), 0, (sockaddr *)&from, fl);
+      }
+    }
     for (int guard = 0; guard < 8 && fdReady(lfd, false); guard++) {
       int fd = accept(lfd, 0, 0);
       if (fd < 0) break;
@@ -189,7 +215,7 @@ class Server {
       setNonBlocking(fd);
       int one = 1;
       setsockopt(fd, IPPROTO_TCP_NODELAY_LEVEL(), TCP_NODELAY_OPT(), (const char *)&one, sizeof(one));
-      Client c; c.fd = fd; c.id = nextId++; c.ws = false; c.closing = false;
+      Client c; c.fd = fd; c.id = nextId++; c.ws = false; c.closing = false; c.lastRx = now; c.born = now;
       cl.push_back(c);
     }
     for (size_t i = 0; i < cl.size();) {
@@ -198,7 +224,7 @@ class Server {
       char buf[4096];
       for (int guard = 0; guard < 16 && fdReady(c.fd, false); guard++) {
         ssize_t n = recv(c.fd, buf, sizeof(buf), RECV_FLAGS());
-        if (n > 0) { c.in.append(buf, (size_t)n); if (c.in.size() > 70000) { dead = true; break; } }
+        if (n > 0) { c.lastRx = now; c.in.append(buf, (size_t)n); if (c.in.size() > 70000) { dead = true; break; } }
         else if (n == 0) { dead = true; break; }
         else { if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) dead = true; break; }
       }
@@ -209,6 +235,8 @@ class Server {
         else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) dead = true;
       }
       if (c.closing && c.out.empty()) dead = true;
+      if (c.ws && now - c.lastRx > 25000) dead = true;      // phone stopped answering pings
+      if (!c.ws && now - c.born > 15000) dead = true;       // stalled HTTP request
       if (dead) {
         if (c.ws) ev.push_back({c.id, 2, ""});
         close(c.fd);
@@ -224,12 +252,21 @@ class Server {
   void broadcast(const std::string &text) {
     for (size_t i = 0; i < cl.size(); i++) if (cl[i].ws && !cl[i].closing) cl[i].out += wsFrame(text);
   }
+  // milliseconds since this client last sent anything (large for unknown ids)
+  uint32_t idleMs(int id, uint32_t now = 0) const {
+    if (!now) now = nowMs();
+    for (size_t i = 0; i < cl.size(); i++) if (cl[i].id == id) return now - cl[i].lastRx;
+    return 0xFFFFFFFFu;
+  }
+  void kick(int id) { for (size_t i = 0; i < cl.size(); i++) if (cl[i].id == id) { cl[i].closing = true; cl[i].out.clear(); cl[i].ws = false; } }
+  void addRoute(const std::string &path, const std::string &mime, const std::string &body) { Route r; r.path = path; r.mime = mime; r.body = body; routes.push_back(r); }
   int wsCount() const { int n = 0; for (size_t i = 0; i < cl.size(); i++) if (cl[i].ws) n++; return n; }
 
  private:
-  int lfd, nextId, stage_;
+  int lfd, ufd, nextId, stage_, port_;
   std::vector<Client> cl;
   std::deque<Event> ev;
+  std::vector<Route> routes;
 
   static int IPPROTO_TCP_NODELAY_LEVEL() { return 6; } // IPPROTO_TCP
   static int TCP_NODELAY_OPT() { return 1; }           // TCP_NODELAY
@@ -271,6 +308,9 @@ class Server {
         c.out += "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: " +
                  std::to_string(html.size()) + "\r\n\r\n" + html;
         c.closing = true;
+      } else if (path == "/ping") {
+        c.out += "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: 8\r\n\r\nPS4CHESS"; c.closing = true;
+      } else if (serveRoute(c, path)) {
       } else if (path == "/favicon.ico") {
         c.out += "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"; c.closing = true;
       } else {
@@ -278,6 +318,15 @@ class Server {
       }
     }
     if (c.ws) parseFrames(c);
+  }
+
+  bool serveRoute(Client &c, const std::string &path) {
+    for (size_t i = 0; i < routes.size(); i++) if (routes[i].path == path) {
+      c.out += "HTTP/1.1 200 OK\r\nContent-Type: " + routes[i].mime + "\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: " +
+               std::to_string(routes[i].body.size()) + "\r\n\r\n" + routes[i].body;
+      c.closing = true; return true;
+    }
+    return false;
   }
 
   void parseFrames(Client &c) {

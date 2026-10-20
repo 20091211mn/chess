@@ -107,14 +107,23 @@ inline void renderPiece(std::vector<uint32_t> &out, int N, int type, int color) 
     for (int d = -R; d <= R && !v; d++) { int yy = y + d; if (yy >= 0 && yy < M && tmp[(size_t)yy * M + x]) v = 1; }
     dil[(size_t)y * M + x] = v;
   }
-  const int fr = color == 0 ? 250 : 70, fg = color == 0 ? 250 : 70, fb = color == 0 ? 250 : 76;
   const int orr = color == 0 ? 28 : 14, og = color == 0 ? 28 : 14, ob = color == 0 ? 30 : 16;
   out.assign((size_t)N * N, 0);
   for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) {
     int a = 0, r = 0, g = 0, b = 0;
     for (int sy = 0; sy < SS; sy++) for (int sx = 0; sx < SS; sx++) {
       size_t i = (size_t)(y * SS + sy) * M + (x * SS + sx);
-      if (cov[i]) { a++; if (det[i]) { r += orr; g += og; b += ob; } else { r += fr; g += fg; b += fb; } }
+      if (cov[i]) {
+        a++;
+        if (det[i]) { r += orr; g += og; b += ob; }
+        else {
+          float fy = ((float)(y * SS + sy) + 0.5f) * 100.f / (float)M, fx = ((float)(x * SS + sx) + 0.5f) * 100.f / (float)M;
+          float v = color == 0 ? 252.f - 0.30f * fy + (50.f - fx) * 0.18f : 100.f - 0.55f * fy + (50.f - fx) * 0.32f;
+          float lo = color == 0 ? 190.f : 26.f, hi = color == 0 ? 255.f : 118.f;
+          if (v < lo) v = lo; if (v > hi) v = hi;
+          int iv = (int)v; r += iv; g += iv; b += iv + (color ? 6 : 2);
+        }
+      }
       else if (dil[i]) { a++; r += orr; g += og; b += ob; }
     }
     if (!a) continue;

@@ -35,7 +35,7 @@ jobs:
           echo "Target dir: $T"; find "work/$N" -maxdepth 3 | head -50
           find "$T" -maxdepth 1 -type f \( -name '*.c' -o -name '*.cpp' \) -delete
           { echo '#include <sstream>'; echo 'std::stringstream debugLogStream;'; cat ps4/main.cpp; } > "$T/main.cpp"
-          cp core/*.hpp core/web_html.h ps4/font.hpp ps4/pieces.hpp "$T/"
+          cp core/*.hpp core/web_html.h ps4/*.hpp "$T/"
           touch "$T/lan_enabled.h"
           I=$(find "work/$N" -name icon0.png | head -1)
           echo "icon: $I"; cp ps4/icon0.png "$I"

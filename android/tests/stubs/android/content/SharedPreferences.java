@@ -1,0 +1,1 @@
+package android.content; public interface SharedPreferences { String getString(String k, String d); Editor edit(); interface Editor { Editor putString(String k, String v); void apply(); } }
