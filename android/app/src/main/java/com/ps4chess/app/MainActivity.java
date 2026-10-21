@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -16,6 +17,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -33,6 +35,9 @@ public class MainActivity extends Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private WebView web;
+    private FrameLayout webRoot;
+    private TextView loading;
+    private Runnable loadTimeout;
     private LinearLayout connectRoot;
     private LinearLayout list;
     private TextView status;
@@ -124,6 +129,7 @@ public class MainActivity extends Activity {
 
     private void showConnect(String message) {
         inWeb = false;
+        if (loadTimeout != null) { ui.removeCallbacks(loadTimeout); loadTimeout = null; }
         if (web != null) web.stopLoading();
         setContentView(connectRoot);
         if (message != null) status.setText(message);
@@ -199,17 +205,42 @@ public class MainActivity extends Activity {
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, String url) { return false; }
 
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    if (loadTimeout != null) { ui.removeCallbacks(loadTimeout); loadTimeout = null; }
+                    loading.setVisibility(View.GONE);
+                }
+
                 @SuppressWarnings("deprecation")
                 @Override
                 public void onReceivedError(WebView view, int code, String desc, String failingUrl) {
-                    showConnect("Lost the connection to the PS4. Searching again...");
+                    showConnect("Could not open the PS4 page (" + desc + "). Searching again...");
                     startSearch();
                 }
             });
+            loading = new TextView(this);
+            loading.setTextColor(Color.WHITE);
+            loading.setTextSize(18);
+            loading.setGravity(Gravity.CENTER);
+            loading.setBackgroundColor(BG);
+            webRoot = new FrameLayout(this);
+            webRoot.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            webRoot.addView(loading, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         inWeb = true;
-        setContentView(web);
+        loading.setText("Opening your PS4 at " + ip + " ...");
+        loading.setVisibility(View.VISIBLE);
+        setContentView(webRoot);
         web.loadUrl("http://" + ip + ":" + port + "/");
+        if (loadTimeout != null) ui.removeCallbacks(loadTimeout);
+        loadTimeout = new Runnable() {
+            public void run() {
+                loadTimeout = null;
+                showConnect("The PS4 did not answer in time. Make sure the game is open in LAN mode, then try again.");
+                startSearch();
+            }
+        };
+        ui.postDelayed(loadTimeout, 12000);
     }
 
     @Override

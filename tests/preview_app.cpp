@@ -77,24 +77,10 @@ void SDL_Delay(Uint32) {
 
 int main(int argc, char **argv) {
   if (argc > 1) outdir = argv[1];
-  wait(3); shot("menu_robot");
-  check([] { app.menuSel = 4; app.theme = 1; app.timeIdx = 3; }); wait(3); shot("menu_theme");
-  check([] { app.menuSel = 0; app.mode = M_LAN; }); wait(25); shot("menu_lan");
-  check([] { app.mode = M_ROBOT; app.level = 0; app.menuSel = 9; app.theme = 0; app.timeIdx = 3; }); wait(3);
-  tap(0); wait(3);
-  check([] { const char *mv[] = {"e2e4","e7e5","g1f3","b8c6","f1b5","a7a6","b5a4","g8f6","e1g1","f8e7","f1e1","b7b5","a4b3","d7d6","c2c3","e8g8"};
-    for (int i = 0; i < 16; i++) app.game.playUci(mv[i]); app.lastFrom = 60; app.lastTo = 62; app.humanSide = WHITE; app.aiState = 0; app.evalPly = -1; app.game.clk[0] = 512000; app.game.clk[1] = 487000; });
-  wait(20);
-  check([] { app.curCol = 3; app.curRow = 6; });
-  tap(0); wait(8); shot("game_selected");
-  tap(1); check([] { app.game.playUci("h2h3"); app.lastFrom = 15; app.lastTo = 23; }); wait(40);
-  check([] { app.game.playUci("c8b7"); }); wait(10);
-  hold(1, 80); wait(5); shot("pause");
-  tap(1); wait(3);
-  hold(1, 80); dir(DOWN); tap(0); wait(8); shot("game_hint");
-  check([] { app.game.playUci("d2d4"); app.game.resign(BLACK); }); wait(40); shot("game_over");
-  check([] { app.dlg = D_NONE; app.game.loadFen("r3k2r/pppq1ppp/2npbn2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w kq - 0 8"); app.prevOver = false; app.promoOpen = false; app.mode = M_LOCAL; app.humanSide = WHITE; app.game.drawOffer = -1; });
-  wait(5); check([] { app.game.offerDraw(BLACK); app.dlg = D_CONFIRM; app.confirmKind = C_DRAW_RECV; app.dlgSel = 1; }); wait(5); shot("draw_dialog");
+  // LAN: choose the mode, start the game with Play, let a phone-less server run
+  check([] { app.menuSel = 0; app.mode = M_LAN; app.timeIdx = 3; }); wait(25);
+  check([] { app.menuSel = 9; }); tap(0); wait(30); shot("lan_game");
+  check([] { app.game.playUci("e2e4"); app.lastFrom = 12; app.lastTo = 28; app.evalPly = -1; }); wait(40); shot("lan_game2");
   lastFrameOfScript = TT + 5;
   app_main(0, 0);
   return 0;

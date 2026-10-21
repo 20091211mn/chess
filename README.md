@@ -13,7 +13,8 @@ Chess for PS4 homebrew (OpenOrbis) with a chess.com-style look, a robot opponent
 ## Phone over LAN
 1. Menu -> **Game mode: Play on Phone (LAN)**. The server starts immediately.
 2. Scan the QR code (or open `http://<ps4-ip>:8080`) on a phone on the same Wi-Fi. No app, no build.
-3. Press **Play**. The phone gets the other colour. A phone that went to sleep is replaced automatically when it reconnects.
+3. Not sure the network works? Open `http://<ps4-ip>:8080/test` first - a plain page that says "PS4 Chess server is reachable".
+4. Press **Play**. The phone gets the other colour. A phone that went to sleep is replaced automatically when it reconnects.
 
 Run the web page on a computer/Termux without a PS4: `clang++ -O2 -std=c++11 tools/server.cpp -o chessweb && ./chessweb 8080 2`.
 

@@ -70,16 +70,20 @@ static SDL_Texture *makeTex(int w, int h, const std::vector<uint32_t> &px) {
   return t;
 }
 
+static void splash(int step, int total);
 static void initGfx() {
   SDL_SetRenderDrawBlendMode(R, SDL_BLENDMODE_BLEND);
+  splash(0, 16);
   for (int i = 0; i < 12; i++) texPiece[i] = 0;
   txt::build(ATLAS);
   texAtlas = makeTex(ATLAS.w, ATLAS.h, ATLAS.px);
   bool ok = texAtlas != 0;
+  splash(1, 16);
   for (int c = 0; c < 2; c++) for (int t = 1; t <= 6; t++) {
     std::vector<uint32_t> px; gfx::renderPiece(px, CELL, t, c);
     texPiece[c * 6 + t - 1] = makeTex(CELL, CELL, px);
     if (!texPiece[c * 6 + t - 1]) ok = false;
+    splash(2 + c * 6 + t - 1, 16);
   }
   const int N = 64, SS = 4;
   std::vector<uint32_t> d(N * N, 0), rg(N * N, 0);
@@ -94,11 +98,13 @@ static void initGfx() {
     rg[y * N + x] = ((uint32_t)(ar * 255 / (SS * SS)) << 24) | 0xFFFFFF;
   }
   texDisc = makeTex(N, N, d); texRing = makeTex(N, N, rg);
+  splash(14, 16);
   // board-sized texture for the hint arrow (updated on demand)
   SDL_Texture *ta = SDL_CreateTexture(R, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, BOARD_PX, BOARD_PX);
   if (ta) { std::vector<uint32_t> z((size_t)BOARD_PX * BOARD_PX, 0); SDL_UpdateTexture(ta, 0, z.data(), BOARD_PX * 4); SDL_SetTextureBlendMode(ta, SDL_BLENDMODE_BLEND); }
   texArrow = ta;
   texOK = ok && texDisc && texRing;
+  splash(16, 16);
 }
 
 static void fillRect(int x, int y, int w, int h, Col c) {
@@ -127,6 +133,20 @@ static void fillRound(int x, int y, int w, int h, int r, Col c) {
   fillRect(x + w - r, y + r, r, h - 2 * r, c);
   drawDisc(x + r, y + r, 2 * r, 2 * r, c, false); drawDisc(x + w - r, y + r, 2 * r, 2 * r, c, false);
   drawDisc(x + r, y + h - r, 2 * r, 2 * r, c, false); drawDisc(x + w - r, y + h - r, 2 * r, 2 * r, c, false);
+}
+
+// plain rectangles + the tiny built-in bitmap font only: works before any texture exists
+static void splash(int step, int total) {
+  fillRect(0, 0, SCR_W, SCR_H, BG);
+  const char *msg = "PS4 CHESS - LOADING";
+  int x0 = SCR_W / 2 - (int)strlen(msg) * 10 * 2 / 2;
+  for (int i = 0; msg[i]; i++) {
+    int g = (unsigned char)msg[i] - 32; if (g < 0 || g > 94) g = 0;
+    for (int cx = 0; cx < 5; cx++) for (int r = 0; r < 8; r++) if ((FONT5x7[g][cx] >> r) & 1) fillRect(x0 + i * 20 + cx * 4, 440 + r * 4, 4, 4, TXT);
+  }
+  fillRect(SCR_W / 2 - 300, 520, 600, 16, LINE);
+  fillRect(SCR_W / 2 - 300, 520, 600 * step / (total > 0 ? total : 1), 16, GREEN);
+  SDL_RenderPresent(R);
 }
 
 static int textW(const char *s, int face) {

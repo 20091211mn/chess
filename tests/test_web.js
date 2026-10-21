@@ -19,7 +19,7 @@ const document={createElement:t=>mkEl(t),
 body.appendChild=function(c){ if(c.id==='ghost')reg['ghost']=c; c.parentNode=body; return c };
 ['board','promo','promoBox','conn','status','moves','topName','botName','topCap','botCap','topClock','botClock','flip','resign','draw','again','closeOver','ev','evf','evt','over','overT','overP','drawbar','drawtxt','dyes','dno','nFirst','nPrev','nNext','nLast','topAv','botAv','symbols','toast'].forEach(i=>document.getElementById(i));
 class WS{constructor(u){this.url=u;this.readyState=1;global.__ws=this;setTimeout(()=>this.onopen&&this.onopen(),0)} send(m){sent.push(m)} close(){}}
-global.document=document; global.location={host:'192.168.1.5:8080'}; global.WebSocket=WS; global.navigator={}; global.window={}; global.confirm=()=>true;
+global.document=document; global.location={host:'192.168.1.5:8080'}; global.WebSocket=WS; global.navigator={}; global.window={addEventListener(){}}; global.confirm=()=>true;
 global.setInterval=()=>0; global.clearInterval=()=>{}; const realST=setTimeout; global.setTimeout=(f,ms)=>realST(f,0);
 const code=fs.readFileSync('client.js','utf8'); new Function(code)();
 function feedObj(o){ global.__ws.onmessage({data:JSON.stringify(o)}); }

@@ -308,6 +308,11 @@ class Server {
         c.out += "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: " +
                  std::to_string(html.size()) + "\r\n\r\n" + html;
         c.closing = true;
+      } else if (path == "/test") {
+        std::string body = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>PS4 Chess test</title></head>"
+          "<body style=\"background:#fff;color:#000;font:20px sans-serif;padding:20px\"><h2 style=\"color:#2e7d32\">PS4 Chess server is reachable</h2>"
+          "<p>If you can read this, the network between this device and the PS4 works.</p><p><a href=\"/\">Open the chess board</a></p></body></html>";
+        c.out += "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body; c.closing = true;
       } else if (path == "/ping") {
         c.out += "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: 8\r\n\r\nPS4CHESS"; c.closing = true;
       } else if (serveRoute(c, path)) {
