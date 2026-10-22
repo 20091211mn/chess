@@ -1,0 +1,69 @@
+import os
+
+widget_code = """import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+
+class BannerAdWidget extends StatefulWidget {
+  const BannerAdWidget({super.key});
+
+  @override
+  State<BannerAdWidget> createState() => _BannerAdWidgetState();
+}
+
+class _BannerAdWidgetState extends State<BannerAdWidget> {
+  BannerAd? _bannerAd;
+  bool _isLoaded = false;
+
+  // معرّف إعلان البانر الحقيقي الخاص بك
+  final String _adUnitId = 'ca-app-pub-7019939648590037/6914424873';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAd();
+  }
+
+  void _loadAd() {
+    _bannerAd = BannerAd(
+      adUnitId: _adUnitId,
+      request: const Request(),
+      size: AdSize.banner,
+      listener: BannerAdListener(
+        onAdLoaded: (Ad ad) {
+          setState(() {
+            _isLoaded = true;
+          });
+        },
+        onAdFailedToLoad: (Ad ad, LoadAdError error) {
+          ad.dispose();
+        },
+      ),
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoaded && _bannerAd != null) {
+      return Container(
+        alignment: Alignment.center,
+        width: _bannerAd!.size.width.toDouble(),
+        height: _bannerAd!.size.height.toDouble(),
+        child: AdWidget(ad: _bannerAd!),
+      );
+    }
+    return const SizedBox();
+  }
+}
+"""
+
+os.makedirs("lib", exist_ok=True)
+with open("lib/banner_ad_widget.dart", "w", encoding="utf-8") as f:
+    f.write(widget_code)
+
+print("✔ تم إنشاء ملف lib/banner_ad_widget.dart بنجاح مع معرّف الإعلان الحقيقي!")
