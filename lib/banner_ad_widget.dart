@@ -12,8 +12,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   BannerAd? _bannerAd;
   bool _isLoaded = false;
 
-  // معرّف إعلان البانر الحقيقي الخاص بك
-  final String _adUnitId = 'ca-app-pub-7019939648590037/6914424873';
+  // Google Test Ad Unit ID for verification
+  final String _adUnitId = 'ca-app-pub-3940256099942544/6300978111';
 
   @override
   void initState() {
