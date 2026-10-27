@@ -4,6 +4,7 @@
 #include <math.h>
 #include <string.h>
 #include <vector>
+#include "piecedata.hpp"
 
 namespace gfx {
 
@@ -24,51 +25,10 @@ inline void ellipse(std::vector<Poly> &v, float cx, float cy, float rx, float ry
   for (int i = 0; i < 32; i++) { float a = (float)i * 6.2831853f / 32.f; q.p.push_back(cx + rx * cosf(a)); q.p.push_back(cy + ry * sinf(a)); }
   finish(q); v.push_back(q);
 }
-#define POLY(v, ...) do { static const float pts_[] = {__VA_ARGS__}; poly(v, pts_, (int)(sizeof(pts_) / sizeof(float) / 2)); } while (0)
-
-// piece types 1..6 = pawn knight bishop rook queen king; coordinates in a 100x100 box
+// piece types 1..6 = pawn knight bishop rook queen king; shapes come from piecedata.hpp (tools/piece_shapes.py)
 inline void shapes(int type, std::vector<Poly> &fill, std::vector<Poly> &detail) {
-  const bool needBase = true;
-  if (type == 1) { // pawn
-    ellipse(fill, 50, 29, 12, 12);
-    POLY(fill, 38,42, 62,42, 60,48, 40,48);
-    POLY(fill, 41,47, 59,47, 66,72, 34,72);
-    POLY(fill, 28,72, 72,72, 76,80, 24,80);
-    POLY(fill, 22,80, 78,80, 82,90, 18,90);
-  } else if (type == 2) { // knight (faces left)
-    POLY(fill, 24,80, 30,60, 40,48, 46,42, 40,38, 30,44, 22,44, 20,38, 28,30, 36,20, 38,10, 46,16, 50,12, 52,18, 64,22, 74,38, 78,60, 76,80);
-    POLY(fill, 20,80, 80,80, 83,90, 17,90);
-    POLY(detail, 44,26, 49,26, 49,31, 44,31);
-    POLY(detail, 26,38, 30,38, 30,42, 26,42);
-  } else if (type == 3) { // bishop
-    ellipse(fill, 50, 13, 5, 5);
-    ellipse(fill, 50, 38, 14, 21);
-    POLY(fill, 36,55, 64,55, 66,63, 34,63);
-    POLY(fill, 40,62, 60,62, 66,72, 34,72);
-    POLY(fill, 28,72, 72,72, 76,80, 24,80);
-    POLY(fill, 22,80, 78,80, 82,90, 18,90);
-    POLY(detail, 46,28, 49,26, 58,40, 55,43);
-  } else if (type == 4) { // rook
-    POLY(fill, 27,12, 38,12, 38,19, 44,19, 44,12, 56,12, 56,19, 62,19, 62,12, 73,12, 73,32, 27,32);
-    POLY(fill, 33,31, 67,31, 63,40, 37,40);
-    POLY(fill, 37,39, 63,39, 68,72, 32,72);
-    POLY(fill, 27,72, 73,72, 77,80, 23,80);
-    POLY(fill, 21,80, 79,80, 83,90, 17,90);
-  } else if (type == 5) { // queen
-    ellipse(fill, 20, 24, 5, 5); ellipse(fill, 35, 15, 5, 5); ellipse(fill, 50, 11, 5, 5);
-    ellipse(fill, 65, 15, 5, 5); ellipse(fill, 80, 24, 5, 5);
-    POLY(fill, 20,26, 34,52, 36,17, 44,50, 50,13, 56,50, 64,17, 66,52, 80,26, 74,70, 26,70);
-    POLY(fill, 27,68, 73,68, 77,80, 23,80);
-    POLY(fill, 21,80, 79,80, 83,90, 17,90);
-  } else { // king
-    POLY(fill, 46,4, 54,4, 54,11, 61,11, 61,18, 54,18, 54,26, 46,26, 46,18, 39,18, 39,11, 46,11);
-    ellipse(fill, 50, 38, 21, 14);
-    POLY(fill, 30,40, 70,40, 76,72, 24,72);
-    POLY(fill, 26,70, 74,70, 78,80, 22,80);
-    POLY(fill, 21,80, 79,80, 83,90, 17,90);
-    POLY(detail, 30,38, 70,38, 70,41, 30,41);
-  }
-  (void)needBase;
+  const PS &ps = PIECE_SHAPES[type];
+  for (int i = 0; i < ps.n; i++) poly(ps.p[i].detail ? detail : fill, ps.p[i].pts, ps.p[i].n);
 }
 
 inline bool inside(const std::vector<Poly> &v, float x, float y) {

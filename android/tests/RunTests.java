@@ -24,7 +24,7 @@ public class RunTests {
         StandardJavaFileManager fm = jc.getStandardFileManager(diag, null, null);
         boolean ok = jc.getTask(null, fm, diag, Arrays.asList("-source", "8", "-target", "8", "-d", out.toString(), "-Xlint:-options"), null, fm.getJavaFileObjectsFromFiles(srcs)).call();
         for (Diagnostic<?> d : diag.getDiagnostics()) if (d.getKind() == Diagnostic.Kind.ERROR) System.out.println("  " + d);
-        check(ok, "Android sources compile (" + srcs.size() + " files)");
+        check(ok, "Android sources (app + glue) compile against the API stubs (" + srcs.size() + " files)");
         // Android desugars Java 8 only: refuse newer library calls that would crash on old phones
         for (File f : srcs) { if (f.getPath().contains("stubs")) continue;
             String code = new String(Files.readAllBytes(f.toPath()), "UTF-8");

@@ -23,8 +23,13 @@ open('$OUT/client.js','w').write(re.search(r'<script>(.*)</script>',h,re.S).grou
 else echo "node not installed - skipped"; fi
 echo "== phone page in a real browser (Chromium)"
 $CXX -O2 -std=c++11 tools/server.cpp -o "$OUT/chessweb" && python3 tests/test_browser.py "$OUT/chessweb"
-echo "== Android app logic (discovery against the real server)"
+echo "== Android app (JVM): type-check against API stubs + discovery"
 if command -v java >/dev/null 2>&1 && java --list-modules 2>/dev/null | grep -q jdk.compiler; then
-  $CXX -O2 -std=c++11 tools/server.cpp -o "$OUT/chessweb" && java android/tests/RunTests.java "$OUT/chessweb" android | tail -3
-else echo "JDK not installed - skipped"; fi
+  $CXX -O2 -std=c++11 tools/server.cpp -o "$OUT/chessweb" 2>/dev/null
+  java android/tests/RunTests.java "$OUT/chessweb" android | tail -3
+  echo "== Android app core: perft, AI, WebSocket client, LAN session vs the real server"
+  java android/tests/CoreTests.java "$OUT/chessweb" android | tail -4
+  echo "== Android app UI: every screen rendered with Java2D + simulated touches"
+  rm -rf "$OUT/uiclasses" && java android/tests/Build.java android "$OUT/uiclasses" && java -cp "$OUT/uiclasses" AppTests "$OUT/chessweb" "$OUT/appshots" | tail -4
+else echo "JDK not installed - Android suites skipped"; fi
 echo "ALL SUITES DONE"

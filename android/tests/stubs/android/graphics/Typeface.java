@@ -1,1 +1,1 @@
-package android.graphics; public class Typeface { public static final Typeface DEFAULT_BOLD = new Typeface(); }
+package android.graphics; import android.content.res.AssetManager; public class Typeface { public static final Typeface DEFAULT = new Typeface(), DEFAULT_BOLD = new Typeface(); public static Typeface createFromAsset(AssetManager m, String p) { return new Typeface(); } }

@@ -1,1 +1,1 @@
-package android.widget; import android.content.Context; public class EditText extends TextView { public EditText(Context c) { super(c); } }
+package android.widget; import android.content.Context; import android.text.Editable; import android.view.View; public class EditText extends View { public EditText(Context c) { super(c); } public void setHint(CharSequence h) {} public void setText(CharSequence t) {} public void setSingleLine(boolean b) {} public void setInputType(int t) {} public Editable getText() { return null; } }

@@ -1,1 +1,0 @@
-package android.webkit; import android.content.Context; import android.view.ViewGroup; public class WebView extends ViewGroup { public WebView(Context c) { super(c); } public WebSettings getSettings() { return new WebSettings(); } public void setWebViewClient(WebViewClient c) {} public void loadUrl(String u) {} public void stopLoading() {} }

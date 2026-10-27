@@ -1,0 +1,1 @@
+package android.media; public class AudioTrack { public static final int MODE_STATIC = 0; public AudioTrack(int st, int rate, int ch, int fmt, int size, int mode) {} public int write(short[] d, int o, int n) { return n; } public void stop() {} public int reloadStaticData() { return 0; } public void play() {} }
