@@ -19,6 +19,7 @@ Uint8 SDL_JoystickGetButton(SDL_Joystick *, int i) { return (Uint8)g_btn[i]; } S
 SDL_Window *SDL_CreateWindow(const char *, int, int, int, int, uint32_t) { return (SDL_Window *)1; }
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *, int, uint32_t) { return (SDL_Renderer *)1; }
 SDL_Texture *SDL_CreateTexture(SDL_Renderer *, uint32_t, int, int, int) { return (SDL_Texture *)1; }
+void SDL_DestroyTexture(SDL_Texture *) {}
 int SDL_UpdateTexture(SDL_Texture *, const SDL_Rect *, const void *, int) { return 0; }
 int SDL_SetTextureBlendMode(SDL_Texture *, int) { return 0; } int SDL_SetTextureColorMod(SDL_Texture *, Uint8, Uint8, Uint8) { return 0; } int SDL_SetTextureAlphaMod(SDL_Texture *, Uint8) { return 0; }
 int SDL_RenderCopy(SDL_Renderer *, SDL_Texture *, const SDL_Rect *, const SDL_Rect *) { g_copies++; return 0; }
@@ -149,7 +150,7 @@ int main() {
   check([] { CHECK(!app.game.over() && app.game.plies() == 0 && app.humanSide == BLACK && app.room.phoneSide == WHITE); });
   check([] { close(phone); phone = -1; });
   wait(10);
-  check([] { printf("frames=%d textureCopies=%d fillRects=%d\n", g_frame, g_copies, g_fills); CHECK(g_copies > 1000); });
+  check([] { printf("frames=%d textureCopies=%d fillRects=%d\n", g_frame, g_copies, g_fills); CHECK(g_copies > 200); });
   lastFrameOfScript = TT + 5;
   app_main(0, 0);
   printf(fails ? "\n%d FAILURES\n" : "\nALL APP TESTS PASSED\n", fails);

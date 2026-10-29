@@ -26,6 +26,9 @@ Run the web page on a computer/Termux without a PS4: `clang++ -O2 -std=c++11 too
 Build: GitHub **Actions -> android-apk -> Artifacts -> PS4Chess-apk** (`app-debug.apk`). Install it (allow "install unknown apps") and open it.
 Piece artwork lives in `tools/piece_shapes.py`; `python3 tools/gen_pieces.py` regenerates it for PS4, web and Android.
 
+## Performance notes (PS4)
+The screen is redrawn only when something visible changed (plus a 250 ms safety refresh); text and the QR code are cached as textures, so an idle game costs ~14 draw calls per loop instead of ~870. The network is polled ~300 times a second even when nothing is drawn. The small `N fps  M Hz` text in the top-right corner shows redraws per second and loop iterations per second (the latter is the network polling rate).
+
 ## Controls
 D-pad / left stick move, X select, O cancel (hold O = pause menu), Square flip, Triangle undo.
 If a button does nothing, open **Controller test** in the menu; the mapping is the `BTN_*` arrays near the top of `ps4/main.cpp`.

@@ -234,6 +234,7 @@ class Server {
         if (n > 0) c.out.erase(0, (size_t)n);
         else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) dead = true;
       }
+      if (c.out.size() > 262144) dead = true;               // a client that never reads must not hold memory forever
       if (c.closing && c.out.empty()) dead = true;
       if (c.ws && now - c.lastRx > 25000) dead = true;      // phone stopped answering pings
       if (!c.ws && now - c.born > 15000) dead = true;       // stalled HTTP request

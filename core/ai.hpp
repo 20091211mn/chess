@@ -14,6 +14,8 @@ static const Level LEVELS[5] = {
   {"Expert",   6, 2500000, 0,   0},
 };
 
+static const Level LEVEL_HINT = {"Hint", 4, 120000, 0, 0};
+
 namespace aidata {
 static const int VAL[7] = {0, 100, 320, 330, 500, 900, 0};
 static const int PST[7][64] = {
@@ -194,6 +196,12 @@ inline int evalWhiteCp(const Pos &p, long nodes = 40000) {
   int sc = s.search(p, 2, -100000, 100000, 0);
   if (s.stop) sc = Searcher::evaluate(p);
   return p.side == WHITE ? sc : -sc;
+}
+
+inline Move aiMoveWith(const Pos &p, const Level &lv, int *score = 0) {
+  static Searcher s;
+  s.rng ^= (uint32_t)(p.full * 2654435761u) ^ (uint32_t)p.half;
+  return s.think(p, lv, score);
 }
 
 inline Move aiMove(const Pos &p, int level, int *score = 0) {

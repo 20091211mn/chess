@@ -21,6 +21,7 @@ Uint8 SDL_JoystickGetButton(SDL_Joystick *, int i) { return (Uint8)g_btn[i]; } S
 SDL_Window *SDL_CreateWindow(const char *, int, int, int, int, uint32_t) { return (SDL_Window *)1; }
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *, int, uint32_t) { return (SDL_Renderer *)1; }
 SDL_Texture *SDL_CreateTexture(SDL_Renderer *, uint32_t, int, int w, int h) { Tex *t = new Tex; t->w = w; t->h = h; t->px.assign((size_t)w * h, 0); t->cm[0] = t->cm[1] = t->cm[2] = 255; t->am = 255; return (SDL_Texture *)t; }
+void SDL_DestroyTexture(SDL_Texture *t) { delete (Tex *)t; }
 int SDL_UpdateTexture(SDL_Texture *t, const SDL_Rect *, const void *p, int pitch) { Tex *x = (Tex *)t; for (int y = 0; y < x->h; y++) memcpy(&x->px[(size_t)y * x->w], (const uint8_t *)p + (size_t)y * pitch, (size_t)x->w * 4); return 0; }
 int SDL_SetTextureBlendMode(SDL_Texture *, int) { return 0; }
 int SDL_SetTextureColorMod(SDL_Texture *t, Uint8 r, Uint8 g, Uint8 b) { Tex *x = (Tex *)t; x->cm[0] = r; x->cm[1] = g; x->cm[2] = b; return 0; }
@@ -61,7 +62,7 @@ static void dir(int d) { acts.push_back({TT, 2, d, 0}); acts.push_back({TT + 1, 
 static void wait(int n) { TT += n; }
 static void check(std::function<void()> f) { acts.push_back({TT, 3, 0, f}); TT += 2; }
 static std::vector<std::string> shotNames;
-static void shot(const char *name) { std::string n = name; acts.push_back({TT, 3, 0, [n] { dumpName = n; dumpNow = true; }}); TT += 3; }
+static void shot(const char *name) { std::string n = name; acts.push_back({TT, 3, 0, [n] { dumpName = n; dumpNow = true; }}); TT += 24; }
 #define UP SDL_HAT_UP
 #define DOWN SDL_HAT_DOWN
 #define LEFT SDL_HAT_LEFT

@@ -25,6 +25,7 @@ Uint8 SDL_JoystickGetButton(SDL_Joystick*,int); Sint16 SDL_JoystickGetAxis(SDL_J
 SDL_Window* SDL_CreateWindow(const char*,int,int,int,int,uint32_t); SDL_Renderer* SDL_CreateRenderer(SDL_Window*,int,uint32_t);
 SDL_Texture* SDL_CreateTexture(SDL_Renderer*,uint32_t,int,int,int); int SDL_UpdateTexture(SDL_Texture*,const SDL_Rect*,const void*,int);
 int SDL_SetTextureBlendMode(SDL_Texture*,int); int SDL_SetTextureColorMod(SDL_Texture*,Uint8,Uint8,Uint8); int SDL_SetTextureAlphaMod(SDL_Texture*,Uint8);
+void SDL_DestroyTexture(SDL_Texture*);
 int SDL_RenderCopy(SDL_Renderer*,SDL_Texture*,const SDL_Rect*,const SDL_Rect*); int SDL_SetRenderDrawBlendMode(SDL_Renderer*,int);
 int SDL_PollEvent(SDL_Event*); int SDL_SetRenderDrawColor(SDL_Renderer*,Uint8,Uint8,Uint8,Uint8);
 int SDL_RenderFillRect(SDL_Renderer*,const SDL_Rect*); void SDL_RenderPresent(SDL_Renderer*); void SDL_Delay(Uint32); Uint32 SDL_GetTicks(void);

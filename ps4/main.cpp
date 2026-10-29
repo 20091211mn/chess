@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <map>
 #include <string>
 #include <vector>
 #include "engine.hpp"
@@ -153,7 +154,45 @@ static int textW(const char *s, int face) {
   if (texOK) return txt::width(ATLAS, face, s);
   return (int)strlen(s) * 10;
 }
-// y = top of the text line box
+// y = top of the text line box. Every string is rasterised once into a texture (one draw call per string, not per glyph).
+struct TextTex { SDL_Texture *t; int w, h, ox, oy; };
+static std::map<std::string, TextTex> g_textCache;
+static TextTex *textTexFor(const char *s, int face) {
+  std::string key = std::string(1, (char)('0' + face)) + s;
+  std::map<std::string, TextTex>::iterator it = g_textCache.find(key);
+  if (it != g_textCache.end()) return &it->second;
+  if (g_textCache.size() > 450) {
+    for (it = g_textCache.begin(); it != g_textCache.end(); ++it) if (it->second.t) SDL_DestroyTexture(it->second.t);
+    g_textCache.clear();
+  }
+  const txt::Face &F = ATLAS.face[face];
+  int pen = 0, minx = 1 << 20, maxx = -(1 << 20), miny = 1 << 20, maxy = -(1 << 20);
+  for (const char *q = s; *q; q++) {
+    int g = (unsigned char)*q - 32; if (g < 0 || g > 94) g = '?' - 32;
+    const txt::Rect &r = F.g[g];
+    if (r.w) { minx = std::min(minx, pen + r.bx); maxx = std::max(maxx, pen + r.bx + r.w); miny = std::min(miny, F.asc + r.by); maxy = std::max(maxy, F.asc + r.by + r.h); }
+    pen += r.adv;
+  }
+  TextTex tt = {0, 0, 0, 0, 0};
+  if (maxx > minx && maxy > miny) {
+    tt.w = maxx - minx; tt.h = maxy - miny; tt.ox = minx; tt.oy = miny;
+    std::vector<uint32_t> px((size_t)tt.w * tt.h, 0x00FFFFFFu);
+    pen = 0;
+    for (const char *q = s; *q; q++) {
+      int g = (unsigned char)*q - 32; if (g < 0 || g > 94) g = '?' - 32;
+      const txt::Rect &r = F.g[g];
+      for (int j = 0; j < r.h; j++) for (int i = 0; i < r.w; i++) {
+        uint32_t a = ATLAS.px[(size_t)(r.y + j) * ATLAS.w + r.x + i] >> 24;
+        if (!a) continue;
+        size_t at = (size_t)(F.asc + r.by + j - miny) * tt.w + (pen + r.bx + i - minx);
+        if ((px[at] >> 24) < a) px[at] = (a << 24) | 0x00FFFFFFu;
+      }
+      pen += r.adv;
+    }
+    tt.t = makeTex(tt.w, tt.h, px);
+  }
+  return &(g_textCache[key] = tt);
+}
 static void drawText(int x, int y, const char *s, int face, Col c) {
   if (!texOK) {
     for (int i = 0; s[i]; i++) {
@@ -162,19 +201,11 @@ static void drawText(int x, int y, const char *s, int face, Col c) {
     }
     return;
   }
-  const txt::Face &F = ATLAS.face[face];
-  int pen = x;
-  SDL_SetTextureColorMod(texAtlas, c.r, c.g, c.b); SDL_SetTextureAlphaMod(texAtlas, c.a);
-  for (; *s; s++) {
-    int g = (unsigned char)*s - 32; if (g < 0 || g > 94) g = '?' - 32;
-    const txt::Rect &r = F.g[g];
-    if (r.w) {
-      SDL_Rect src; src.x = r.x; src.y = r.y; src.w = r.w; src.h = r.h;
-      SDL_Rect dst; dst.x = pen + r.bx; dst.y = y + F.asc + r.by; dst.w = r.w; dst.h = r.h;
-      SDL_RenderCopy(R, texAtlas, &src, &dst);
-    }
-    pen += r.adv;
-  }
+  TextTex *tt = textTexFor(s, face);
+  if (!tt->t) return;
+  SDL_Rect dst; dst.x = x + tt->ox; dst.y = y + tt->oy; dst.w = tt->w; dst.h = tt->h;
+  SDL_SetTextureColorMod(tt->t, c.r, c.g, c.b); SDL_SetTextureAlphaMod(tt->t, c.a);
+  SDL_RenderCopy(R, tt->t, 0, &dst);
 }
 static void textC(int cx, int y, const char *s, int face, Col c) { drawText(cx - textW(s, face) / 2, y, s, face, c); }
 static void textR(int rx, int y, const char *s, int face, Col c) { drawText(rx - textW(s, face), y, s, face, c); }
@@ -304,7 +335,8 @@ struct App {
 };
 static App app;
 static Pad pad;
-static unsigned g_frames = 0;
+static unsigned g_frames = 0, g_fpsStamp = 0;
+static char g_fpsText[40] = "";
 
 static int squareAt(int col, int row) {
   int f = app.flipped ? 7 - col : col, r = app.flipped ? row : 7 - row;
@@ -340,6 +372,29 @@ static void ensureQr() {
   if (u == app.qrText) return;
   app.qrText = u; app.qrc = qr::Code();
   if (!u.empty()) qr::encode(u, app.qrc);
+}
+
+static SDL_Texture *g_qrTex = 0; static std::string g_qrTexText; static int g_qrMod = 0;
+// draws the QR code 1:1 from a cached texture (no scaling, so modules stay sharp for scanning)
+static void drawQr(int qx, int qy, int mod) {
+  int n = app.qrc.n;
+  if (!n || mod <= 0) return;
+  if (texOK) {
+    if (!g_qrTex || g_qrTexText != app.qrText || g_qrMod != mod) {
+      if (g_qrTex) SDL_DestroyTexture(g_qrTex);
+      int side = n * mod;
+      std::vector<uint32_t> px((size_t)side * side, 0xFFFFFFFFu);
+      for (int y = 0; y < side; y++) for (int x = 0; x < side; x++) if (app.qrc.dark(x / mod, y / mod)) px[(size_t)y * side + x] = 0xFF141414u;
+      g_qrTex = makeTex(side, side, px); g_qrTexText = app.qrText; g_qrMod = mod;
+    }
+    if (g_qrTex) {
+      SDL_Rect dst; dst.x = qx; dst.y = qy; dst.w = n * mod; dst.h = n * mod;
+      SDL_SetTextureColorMod(g_qrTex, 255, 255, 255); SDL_SetTextureAlphaMod(g_qrTex, 255);
+      SDL_RenderCopy(R, g_qrTex, 0, &dst);
+      return;
+    }
+  }
+  for (int yy = 0; yy < n; yy++) for (int xx = 0; xx < n; xx++) if (app.qrc.dark(xx, yy)) fillRect(qx + xx * mod, qy + yy * mod, mod, mod, C(20, 20, 20));
 }
 
 static void lanBroadcast() {
@@ -482,13 +537,13 @@ static void updateEval() {
   Game &g = app.game;
   if (!app.evalOn && app.mode != M_LAN) return;
   if (g.over()) app.evalCp = g.result == R_WHITE ? 30000 : g.result == R_BLACK ? -30000 : 0;
-  else app.evalCp = evalWhiteCp(g.pos, 30000);
+  else app.evalCp = evalWhiteCp(g.pos, 10000);
   lanBroadcast();
 }
 
 static void requestHint() {
   if (!isHumanTurn() || app.game.over()) return;
-  Move m = aiMove(app.game.pos, 4);
+  Move m = aiMoveWith(app.game.pos, LEVEL_HINT);
   if (m.isNull()) return;
   app.hintFrom = m.from; app.hintTo = m.to; app.hintFlip = app.flipped; app.hintUntil = app.now + 7000;
   buildArrow(m.from, m.to);
@@ -499,7 +554,7 @@ static void humanOfferDraw() {
   if (g.over()) return;
   if (g.drawOffer >= 0) { showToast("A draw offer is already pending"); return; }
   if (app.mode == M_ROBOT) {
-    int cp = evalWhiteCp(g.pos), robotCp = (app.humanSide ^ 1) == WHITE ? cp : -cp;
+    int cp = evalWhiteCp(g.pos, 10000), robotCp = (app.humanSide ^ 1) == WHITE ? cp : -cp;
     g.offerDraw(app.humanSide);
     bool accept = robotCp <= 30;
     g.answerDraw(accept);
@@ -633,7 +688,6 @@ static void updateGame(int mx, int my) {
     if (ev.drawAnswered && !g.over()) showToast("Phone declined the draw");
     if (ev.connected && !wasConnected) showToast("Phone connected");
     if (ev.disconnected) showToast("Phone disconnected");
-    if (ev.connected || ev.disconnected || ev.moved) lanBroadcast();
     if (g.drawOffer == app.room.phoneSide && app.dlg == D_NONE && !g.over()) openConfirm(C_DRAW_RECV);
     if (now - app.lastSync > 5000) { app.lastSync = now; lanBroadcast(); }
   }
@@ -856,7 +910,7 @@ static void drawLeft() {
     if (qrN) {
       int qs = mod * qrN, qx = 40 + 20, qy = y + 20;
       fillRound(qx - 8, qy - 8, qs + 16, qs + 16, 8, C(255, 255, 255));
-      for (int yy = 0; yy < qrN; yy++) for (int xx = 0; xx < qrN; xx++) if (app.qrc.dark(xx, yy)) fillRect(qx + xx * mod, qy + yy * mod, mod, mod, C(20, 20, 20));
+      drawQr(qx, qy, mod);
     }
     drawText(40 + 250, y + 22, "Scan to play", F_MB, TXT);
     drawText(40 + 250, y + 60, "Phone and PS4", F_S, SUB); drawText(40 + 250, y + 86, "on the same Wi-Fi", F_S, SUB);
@@ -972,6 +1026,7 @@ static void drawOverlays() {
 
 static void drawGame() {
   fillRect(0, 0, SCR_W, SCR_H, BG);
+  textR(SCR_W - 12, 6, g_fpsText, F_XS, C(110, 109, 106));
   int bottom = app.flipped ? BLACK : WHITE;
   drawPlayerCard(bottom ^ 1, 36);
   drawPlayerCard(bottom, BY + BOARD_PX + 8);
@@ -996,7 +1051,7 @@ static void drawMenu() {
     if (qrN) {
       int qs = mod * qrN, qx = 112 + (500 - qs) / 2, qy = 290;
       fillRound(qx - 14, qy - 14, qs + 28, qs + 28, 12, C(255, 255, 255));
-      for (int yy = 0; yy < qrN; yy++) for (int xx = 0; xx < qrN; xx++) if (app.qrc.dark(xx, yy)) fillRect(qx + xx * mod, qy + yy * mod, mod, mod, C(20, 20, 20));
+      drawQr(qx, qy, mod);
     } else textC(112 + 250, 400, "Getting IP address...", F_M, MUT);
     textC(112 + 250, 650, "Scan with your phone camera", F_MB, TXT);
     std::string url = lanUrl();
@@ -1061,7 +1116,7 @@ static void drawMenu() {
     if (s && !na && i != 8) { textR(x + w - 32, y + (62 - lineH(F_M)) / 2, ">", F_MB, GREEN); drawText(vxr - textW(v.c_str(), F_MB) - (i == 4 ? 128 : 34), y + (62 - lineH(F_M)) / 2, "<", F_MB, GREEN); }
   }
   chip(112, 1000, "D-pad", "Choose / change"); chip(480, 1000, "X", "Confirm");
-  char fb[80]; snprintf(fb, sizeof(fb), "button %d   frame %u", pad.lastBtn, (unsigned)g_frames);
+  char fb[96]; snprintf(fb, sizeof(fb), "button %d   %s", pad.lastBtn, g_fpsText);
   textR(1800, 1004, fb, F_XS, C(110, 109, 106));
 }
 
@@ -1083,6 +1138,34 @@ static void drawPadTest() {
 }
 
 // ===================================================================== main loop
+static uint32_t mixh(uint32_t h, uint32_t v) { return h ^ (v + 0x9e3779b9u + (h << 6) + (h >> 2)); }
+
+// Everything that changes what is on screen. The screen is redrawn only when this changes (or every 250 ms as a safety net),
+// so most loop iterations cost almost nothing and the network server stays responsive.
+static uint32_t frameSig() {
+  uint32_t h = 2166136261u; Uint32 now = app.now; Game &g = app.game;
+  h = mixh(h, (uint32_t)app.screen); h = mixh(h, (uint32_t)app.menuSel); h = mixh(h, (uint32_t)app.mode); h = mixh(h, (uint32_t)app.side);
+  h = mixh(h, (uint32_t)app.level); h = mixh(h, (uint32_t)app.timeIdx); h = mixh(h, (uint32_t)app.theme); h = mixh(h, (uint32_t)(app.hints * 2 + app.evalOn));
+  h = mixh(h, (uint32_t)app.autoflip); h = mixh(h, (uint32_t)(app.curCol * 8 + app.curRow)); h = mixh(h, (uint32_t)(app.sel + 1));
+  h = mixh(h, (uint32_t)(app.promoOpen * 16 + app.promoIdx)); h = mixh(h, (uint32_t)(app.dlg * 8 + app.dlgSel)); h = mixh(h, (uint32_t)app.confirmKind);
+  h = mixh(h, (uint32_t)app.overSel); h = mixh(h, (uint32_t)app.flipped);
+  for (int i = 0; i < 2; i++) h = mixh(h, app.anim[i].active ? 1 + (now - app.anim[i].t0) / 14 : 0);
+  h = mixh(h, (uint32_t)g.plies()); h = mixh(h, (uint32_t)g.result); h = mixh(h, (uint32_t)g.pos.side); h = mixh(h, (uint32_t)(g.drawOffer + 1));
+  for (int c = 0; c < 2; c++) { int64_t ms = g.clk[c]; h = mixh(h, (uint32_t)(ms < 10000 ? ms / 100 : ms / 1000)); }
+  h = mixh(h, (uint32_t)(app.toastUntil > now)); h = mixh(h, (uint32_t)app.toast.size());
+  h = mixh(h, (uint32_t)(app.hintFrom + 1)); h = mixh(h, (uint32_t)(app.hintTo + 1));
+  h = mixh(h, (uint32_t)(app.evalDisp * 200)); h = mixh(h, (uint32_t)(app.evalCp + 40000));
+  h = mixh(h, app.aiState >= 1 ? 1 + now / 120 : 0);
+  h = mixh(h, (uint32_t)(app.lastFrom + 1)); h = mixh(h, (uint32_t)(app.lastTo + 1));
+  h = mixh(h, (uint32_t)(pad.lastBtn + 1)); h = mixh(h, g_fpsStamp);
+  if (app.screen == S_PADTEST) { for (int i = 0; i < 32; i++) h = mixh(h, (uint32_t)pad.btn[i]); h = mixh(h, (uint32_t)pad.hat); for (int i = 0; i < 4; i++) h = mixh(h, (uint32_t)(pad.ax[i] / 512 + 100)); }
+#ifdef ENABLE_LAN
+  h = mixh(h, (uint32_t)app.room.connected()); h = mixh(h, (uint32_t)app.room.clients()); h = mixh(h, (uint32_t)app.room.srv.running());
+  h = mixh(h, (uint32_t)app.room.srv.stage()); h = mixh(h, (uint32_t)app.lanError.size()); h = mixh(h, (uint32_t)app.lanIp.size()); h = mixh(h, (uint32_t)app.qrText.size());
+#endif
+  return h;
+}
+
 int main(int argc, char *argv[]) {
   (void)argc; (void)argv;
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) != 0) return 1;
@@ -1096,6 +1179,7 @@ int main(int argc, char *argv[]) {
   app.lanIp = net::localIp();
 #endif
   bool run = true;
+  Uint32 lastDraw = 0, fpsT = SDL_GetTicks(); int drawsSince = 0, loopsSince = 0; uint32_t lastSig = 0; bool first = true;
   while (run) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) { if (e.type == SDL_QUIT) run = false; pad.onEvent(e); }
@@ -1108,12 +1192,21 @@ int main(int argc, char *argv[]) {
       if (PRESSED(pad, BTN_BACK) || (int)app.now - app.padTestStart > 90000) app.screen = S_MENU;
     }
     app.lastFrame = app.now;
-    g_frames++;
-    if (app.screen == S_MENU) drawMenu();
-    else if (app.screen == S_GAME) drawGame();
-    else drawPadTest();
-    SDL_RenderPresent(R);
-    SDL_Delay(1);
+    g_frames++; loopsSince++;
+    uint32_t sig = frameSig();
+    bool need = first || sig != lastSig || app.now - lastDraw >= 250;
+    if (need) {
+      if (app.screen == S_MENU) drawMenu();
+      else if (app.screen == S_GAME) drawGame();
+      else drawPadTest();
+      SDL_RenderPresent(R);
+      lastSig = sig; lastDraw = app.now; first = false; drawsSince++;
+    }
+    if (app.now - fpsT >= 1000) {
+      snprintf(g_fpsText, sizeof(g_fpsText), "%d fps  %d Hz", drawsSince, loopsSince);
+      drawsSince = loopsSince = 0; fpsT = app.now; g_fpsStamp++;
+    }
+    SDL_Delay(need ? 1 : 3);   // idle iterations are cheap: the network is polled at ~300 Hz
   }
   SDL_Quit();
   return 0;
