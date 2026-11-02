@@ -36,12 +36,12 @@ public class RunTests {
 
         // 2. pure logic
         java.lang.reflect.Method parseAddr = disc.getMethod("parseAddress", String.class), parseRep = disc.getMethod("parseReplyPort", String.class);
-        check(Arrays.equals((String[]) parseAddr.invoke(null, "192.168.1.20"), new String[] {"192.168.1.20", "8080"}), "address without port");
+        check(Arrays.equals((String[]) parseAddr.invoke(null, "192.168.1.20"), new String[] {"192.168.1.20", "7788"}), "address without port");
         check(Arrays.equals((String[]) parseAddr.invoke(null, "http://10.0.0.5:9000/"), new String[] {"10.0.0.5", "9000"}), "address with scheme and port");
         check(parseAddr.invoke(null, "bad address!") == null && parseAddr.invoke(null, "1.2.3.4:99999") == null && parseAddr.invoke(null, "") == null, "junk addresses rejected");
         check((Integer) parseRep.invoke(null, "PS4CHESS|8080|PS4 Chess") == 8080 && (Integer) parseRep.invoke(null, "hello") == -1 && (Integer) parseRep.invoke(null, "PS4CHESS|x") == -1, "reply parsing");
 
-        // 3. discovery against the real server (HTTP 18080, UDP 18081)
+        // 3. discovery against the real PS4 simulator (TCP and UDP on 18080)
         if (args.length > 0) {
             Process srv = new ProcessBuilder(args[0], "18080", "1").redirectErrorStream(true).start();
             try {

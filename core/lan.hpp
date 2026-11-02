@@ -1,8 +1,9 @@
 // LAN room: one controlling client (the phone) plus spectators. Server-authoritative:
 // the phone sends moves, the PS4 validates them with the same rules engine.
 //
+// Plain TCP, one message per line.
 // client -> server (text):  hello | ping | hist | move <uci> | resign | new | draw | draw_yes | draw_no
-// server -> client (JSON):  {"t":"state",...}  {"t":"pong"}  {"t":"hist","fens":[...]}
+// server -> client (JSON):  {"t":"hello",...} on connect, {"t":"state",...}  {"t":"pong"}  {"t":"hist","fens":[...]}
 #pragma once
 #include "engine.hpp"
 #include "net.hpp"

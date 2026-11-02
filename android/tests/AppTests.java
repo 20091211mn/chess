@@ -108,8 +108,10 @@ public class AppTests {
             shot("16_lan_after");
             check(tapId("nav_prev"), "LAN: review"); waitFor(() -> false, 600); shot("17_lan_review"); tapId("nav_last");
             check(tapId("act_draw"), "LAN: draw button");
-            check(waitFor(() -> m.drawOffer() >= 0, 3000), "LAN: draw offer reached the PS4");
-            app.back(); frame(); check(app.screenName().equals("HOME"), "LAN: leaving returns home");
+            // the simulated PS4 robot judges the offer at once: equal position -> it accepts
+            check(waitFor(() -> m.over(), 4000) && m.result() == 3 && m.reason().equals("agreement"), "LAN: the PS4 answered the draw offer (over=" + m.over() + ")");
+            frame(); check(app.dialogName().equals("OVER"), "LAN: game over card appears"); shot("18_lan_over");
+            app.back(); frame(); app.back(); frame(); check(app.screenName().equals("HOME"), "LAN: leaving returns home (" + app.screenName() + ")");
         } finally { srv.destroy(); }
     }
 }

@@ -5,31 +5,16 @@ OUT=${TMPDIR:-/tmp}/chess_tests; mkdir -p "$OUT"
 CXX=${CXX:-g++}
 echo "== engine (perft + rules)"; $CXX -O2 -std=c++11 tests/test_engine.cpp -o "$OUT/te" && "$OUT/te" | tail -3
 echo "== ai";                    $CXX -O2 -std=c++11 tests/test_ai.cpp -o "$OUT/ta" && "$OUT/ta" | tail -4
-echo "== net/lan";               $CXX -O1 -std=c++11 tests/test_net.cpp -o "$OUT/tn" && "$OUT/tn" | tail -2
+echo "== PS4 LAN layer (plain TCP lines + UDP discovery)"; $CXX -O1 -std=c++11 tests/test_net.cpp -o "$OUT/tn" && "$OUT/tn" | tail -3
 echo "== PS4 UI (stub SDL)";     $CXX -O1 -w -std=c++11 -Itests/stub -Icore -Ips4 tests/test_app.cpp -o "$OUT/tp" && "$OUT/tp" | tail -2
-echo "== QR code";                $CXX -std=c++11 tests/qr_dump.cpp -o "$OUT/qd" && python3 tests/test_qr.py "$OUT/qd"
-echo "== phone web client";
-if command -v node >/dev/null 2>&1; then
-  $CXX -std=c++11 -I. tests/gen_state.cpp -o "$OUT/gs"
-  "$OUT/gs" > "$OUT/s_start.json"
-  "$OUT/gs" "8/P6k/8/8/8/8/8/K7 w - - 0 1" 0 > "$OUT/s_promo.json"
-  "$OUT/gs" "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e6 0 2" 1 > "$OUT/s_black.json"
-  python3 -c "
-import re,sys
-h=open('web/index.html',encoding='utf-8').read()
-open('$OUT/client.js','w').write(re.search(r'<script>(.*)</script>',h,re.S).group(1))"
-  python3 tools/gen_web.py >/dev/null && git diff --quiet core/web_html.h 2>/dev/null || true
-  node tests/test_web.js "$OUT"
-else echo "node not installed - skipped"; fi
-echo "== phone page in a real browser (Chromium)"
-$CXX -O2 -std=c++11 tools/server.cpp -o "$OUT/chessweb" && python3 tests/test_browser.py "$OUT/chessweb"
+echo "== PS4 UI draw-call budget"; $CXX -O2 -w -std=c++11 -Itests/stub -Icore -Ips4 tests/perf_app.cpp -o "$OUT/pf" && "$OUT/pf"
 echo "== Android app (JVM): type-check against API stubs + discovery"
 if command -v java >/dev/null 2>&1 && java --list-modules 2>/dev/null | grep -q jdk.compiler; then
-  $CXX -O2 -std=c++11 tools/server.cpp -o "$OUT/chessweb" 2>/dev/null
-  java android/tests/RunTests.java "$OUT/chessweb" android | tail -3
-  echo "== Android app core: perft, AI, WebSocket client, LAN session vs the real server"
-  java android/tests/CoreTests.java "$OUT/chessweb" android | tail -4
+  $CXX -O2 -std=c++11 tools/ps4sim.cpp -o "$OUT/ps4sim"
+  java android/tests/RunTests.java "$OUT/ps4sim" android | tail -3
+  echo "== Android app core: perft, AI, TCP client, LAN session vs the PS4 simulator"
+  java android/tests/CoreTests.java "$OUT/ps4sim" android | tail -4
   echo "== Android app UI: every screen rendered with Java2D + simulated touches"
-  rm -rf "$OUT/uiclasses" && java android/tests/Build.java android "$OUT/uiclasses" && java -cp "$OUT/uiclasses" AppTests "$OUT/chessweb" "$OUT/appshots" | tail -4
+  rm -rf "$OUT/uiclasses" && java android/tests/Build.java android "$OUT/uiclasses" && java -cp "$OUT/uiclasses" AppTests "$OUT/ps4sim" "$OUT/appshots" | tail -4
 else echo "JDK not installed - Android suites skipped"; fi
 echo "ALL SUITES DONE"

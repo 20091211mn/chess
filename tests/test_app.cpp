@@ -53,14 +53,10 @@ void SDL_Delay(Uint32) { usleep(400); g_frame++; runActs(); }
 #include "../ps4/main.cpp"
 #undef main
 
-// ---------------------------------------------------------------- fake phone
+// ---------------------------------------------------------------- fake phone (plain TCP lines)
 static int pliesBefore = 0; static int phone = -1; static std::string phoneBuf;
 static void phoneRead() { char b[8192]; ssize_t n; while (phone >= 0 && (n = recv(phone, b, sizeof(b), 0)) > 0) phoneBuf.append(b, (size_t)n); }
-static void phoneSend(const std::string &pl) {
-  std::string f; f += (char)0x81; f += (char)(0x80 | pl.size()); const uint8_t k[4] = {1, 2, 3, 4}; for (int i = 0; i < 4; i++) f += (char)k[i];
-  for (size_t i = 0; i < pl.size(); i++) f += (char)(pl[i] ^ k[i & 3]);
-  send(phone, f.data(), f.size(), 0);
-}
+static void phoneSend(const std::string &pl) { std::string l = pl + "\n"; send(phone, l.data(), l.size(), 0); }
 
 int main() {
   // 1. menu -> robot game (Beginner level, white). Menu starts on "Play" (row 9)
@@ -116,12 +112,11 @@ int main() {
   // phone opens the page while the PS4 is still on the menu
   wait(20);
   check([] { CHECK(app.screen == S_MENU && app.room.srv.running());
-    phone = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(8080); inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
-    CHECK(connect(phone, (sockaddr *)&a, sizeof(a)) == 0); net::setNonBlocking(phone);
-    std::string req = "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
-    send(phone, req.data(), req.size(), 0); });
+    phone = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(7788); inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
+    CHECK(connect(phone, (sockaddr *)&a, sizeof(a)) == 0); net::makeNonBlocking(phone);
+    });
   wait(10);
-  check([] { phoneRead(); CHECK(phoneBuf.find("101 Switching") != std::string::npos); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos);
+  check([] { phoneRead(); CHECK(phoneBuf.find("PS4CHESS") != std::string::npos); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos);
     phoneBuf.clear(); pliesBefore = app.game.plies(); phoneSend("move e7e5"); });
   wait(10);
   check([] { phoneRead(); CHECK(app.game.plies() == pliesBefore); CHECK(phoneBuf.find("Waiting for the game to start") != std::string::npos); phoneBuf.clear(); });

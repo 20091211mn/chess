@@ -2,7 +2,7 @@ package com.ps4chess.app.ui;
 
 import com.ps4chess.app.core.Engine;
 
-/** Draws the vector chess pieces (same artwork as the PS4 game and the web page). */
+/** Draws the vector chess pieces (same artwork as the PS4 game). */
 public final class PieceArt {
     private PieceArt() {}
     private static final float[][][] FILL = new float[7][][], DETAIL = new float[7][][];

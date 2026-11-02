@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Keeps a WebSocket connection to the PS4 alive: heartbeat, automatic reconnect, state/history callbacks.
+ * Keeps a plain TCP connection to the PS4 alive: heartbeat, automatic reconnect, state/history callbacks.
  * Callbacks arrive on worker threads - marshal them to the UI thread yourself.
  */
 public final class LanSession {
@@ -17,9 +17,9 @@ public final class LanSession {
 
     private final Listener l;
     private volatile boolean active;
-    private volatile WsClient ws;
+    private volatile LineClient ws;
     private volatile String host = "";
-    private volatile int port = 8080;
+    private volatile int port = 7788;
     private Thread worker;
     private int generation;
 
@@ -36,7 +36,7 @@ public final class LanSession {
 
     public synchronized void stop() {
         active = false; generation++;
-        WsClient c = ws;
+        LineClient c = ws;
         if (c != null) c.close();
         ws = null;
     }
@@ -44,18 +44,18 @@ public final class LanSession {
     public boolean isActive() { return active; }
 
     public void send(String msg) {
-        WsClient c = ws;
+        LineClient c = ws;
         if (c == null) return;
-        try { c.sendText(msg); } catch (Exception e) { c.close(); }
+        try { c.sendLine(msg); } catch (Exception e) { c.close(); }
     }
 
     private void loop(final int gen) {
         long backoff = 700;
         while (active && gen == generation) {
-            final WsClient c = new WsClient();
+            final LineClient c = new LineClient();
             try {
                 l.onStatus("Connecting to " + host + " ...", false);
-                c.connect(host, port, "/ws", 3500);
+                c.connect(host, port, 3500);
                 ws = c;
                 backoff = 700;
                 l.onStatus("Connected to PS4", true);
@@ -65,16 +65,16 @@ public final class LanSession {
                         try {
                             while (!c.isClosed() && gen == generation) {
                                 Thread.sleep(4000);
-                                c.sendText("ping");
+                                c.sendLine("ping");
                                 if (System.currentTimeMillis() - lastRx[0] > 11000) { c.close(); break; }
                             }
                         } catch (Exception e) { c.close(); }
                     }
                 }, "ps4chess-hb");
                 hb.setDaemon(true); hb.start();
-                c.sendText("hello");
-                c.readLoop(new WsClient.Handler() {
-                    public void onText(String t) {
+                c.sendLine("hello");
+                c.readLoop(new LineClient.Handler() {
+                    public void onLine(String t) {
                         lastRx[0] = System.currentTimeMillis();
                         Map<String, Object> m = MiniJson.object(t);
                         if (m == null) return;

@@ -1,7 +1,6 @@
 package com.ps4chess.app;
 
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
@@ -23,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Finds the PS4 chess server on the local network. Pure Java - no Android classes - so it can be tested on a PC. */
 public final class Discovery {
-    public static final int HTTP_PORT = 8080;
+    public static final int PORT = 7788;
 
     public interface Listener {
         void onFound(String ip, int port);
@@ -32,20 +31,17 @@ public final class Discovery {
 
     private Discovery() {}
 
-    /** True if ip:port answers GET /ping with "PS4CHESS". */
+    /** True if ip:port is a PS4 chess server (it greets every connection with a line containing PS4CHESS). */
     public static boolean ping(String ip, int port, int timeoutMs) {
         Socket s = new Socket();
         try {
             s.connect(new InetSocketAddress(ip, port), timeoutMs);
             s.setSoTimeout(timeoutMs);
-            OutputStream out = s.getOutputStream();
-            out.write(("GET /ping HTTP/1.0\r\nHost: " + ip + "\r\n\r\n").getBytes("US-ASCII"));
-            out.flush();
             InputStream in = s.getInputStream();
-            byte[] buf = new byte[512];
+            byte[] buf = new byte[256];
             StringBuilder sb = new StringBuilder();
             int n;
-            while ((n = in.read(buf)) > 0 && sb.length() < 2048) sb.append(new String(buf, 0, n, "US-ASCII"));
+            while (sb.indexOf("\n") < 0 && sb.length() < 512 && (n = in.read(buf)) > 0) sb.append(new String(buf, 0, n, "US-ASCII"));
             return sb.indexOf("PS4CHESS") >= 0;
         } catch (Exception e) {
             return false;
@@ -109,7 +105,7 @@ public final class Discovery {
                     }
                     public void onDone(int t) { }
                 };
-                pool.submit(new Runnable() { public void run() { udpProbe(port + 1, udpTargets, safe); } });
+                pool.submit(new Runnable() { public void run() { udpProbe(port, udpTargets, safe); } });
                 for (final String prefix : prefixes) {
                     for (int i = 1; i <= 254; i++) {
                         final String ip = prefix + i;
@@ -178,7 +174,7 @@ public final class Discovery {
         int slash = t.indexOf('/');
         if (slash >= 0) t = t.substring(0, slash);
         if (t.length() == 0) return null;
-        String host = t, port = String.valueOf(HTTP_PORT);
+        String host = t, port = String.valueOf(PORT);
         int colon = t.lastIndexOf(':');
         if (colon > 0) {
             host = t.substring(0, colon);

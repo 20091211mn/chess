@@ -22,7 +22,6 @@
 #include "font.hpp"
 #include "pieces.hpp"
 #include "textrender.hpp"
-#include "qr.hpp"
 #if !defined(ENABLE_LAN) && defined(__has_include)
 #  if __has_include("lan_enabled.h")
 #    define ENABLE_LAN 1
@@ -30,7 +29,6 @@
 #endif
 #ifdef ENABLE_LAN
 #  include "lan.hpp"
-#  include "web_html.h"
 #endif
 
 using namespace ce;
@@ -41,7 +39,7 @@ using namespace ce;
 #define BX 560
 #define BY 124
 #define BOARD_PX (8 * CELL)
-#define LAN_PORT 8080
+#define LAN_PORT 7788
 
 struct Col { Uint8 r, g, b, a; };
 static Col C(int r, int g, int b, int a = 255) { Col c = {(Uint8)r, (Uint8)g, (Uint8)b, (Uint8)a}; return c; }
@@ -321,7 +319,6 @@ struct App {
   bool prevOver; Uint32 lastSync;
   int evalCp, evalPly; float evalDisp;
   int hintFrom, hintTo; bool hintFlip; Uint32 hintUntil;
-  qr::Code qrc; std::string qrText;
 #ifdef ENABLE_LAN
   LanRoom room;
 #endif
@@ -336,7 +333,7 @@ struct App {
 static App app;
 static Pad pad;
 static unsigned g_frames = 0, g_fpsStamp = 0;
-static char g_fpsText[40] = "";
+static char g_fpsText[64] = "";
 
 static int squareAt(int col, int row) {
   int f = app.flipped ? 7 - col : col, r = app.flipped ? row : 7 - row;
@@ -363,40 +360,6 @@ static void showToast(const std::string &s) { app.toast = s; app.toastUntil = ap
 static const char *MODE_NAMES[] = {"Play a Friend (local)", "Play vs Robot", "Play on Phone (LAN)"};
 static const char *SIDE_NAMES[] = {"White", "Black", "Random"};
 
-static std::string lanUrl() {
-  if (app.lanIp.empty()) return "";
-  return "http://" + app.lanIp + ":" + std::to_string(LAN_PORT);
-}
-static void ensureQr() {
-  std::string u = lanUrl();
-  if (u == app.qrText) return;
-  app.qrText = u; app.qrc = qr::Code();
-  if (!u.empty()) qr::encode(u, app.qrc);
-}
-
-static SDL_Texture *g_qrTex = 0; static std::string g_qrTexText; static int g_qrMod = 0;
-// draws the QR code 1:1 from a cached texture (no scaling, so modules stay sharp for scanning)
-static void drawQr(int qx, int qy, int mod) {
-  int n = app.qrc.n;
-  if (!n || mod <= 0) return;
-  if (texOK) {
-    if (!g_qrTex || g_qrTexText != app.qrText || g_qrMod != mod) {
-      if (g_qrTex) SDL_DestroyTexture(g_qrTex);
-      int side = n * mod;
-      std::vector<uint32_t> px((size_t)side * side, 0xFFFFFFFFu);
-      for (int y = 0; y < side; y++) for (int x = 0; x < side; x++) if (app.qrc.dark(x / mod, y / mod)) px[(size_t)y * side + x] = 0xFF141414u;
-      g_qrTex = makeTex(side, side, px); g_qrTexText = app.qrText; g_qrMod = mod;
-    }
-    if (g_qrTex) {
-      SDL_Rect dst; dst.x = qx; dst.y = qy; dst.w = n * mod; dst.h = n * mod;
-      SDL_SetTextureColorMod(g_qrTex, 255, 255, 255); SDL_SetTextureAlphaMod(g_qrTex, 255);
-      SDL_RenderCopy(R, g_qrTex, 0, &dst);
-      return;
-    }
-  }
-  for (int yy = 0; yy < n; yy++) for (int xx = 0; xx < n; xx++) if (app.qrc.dark(xx, yy)) fillRect(qx + xx * mod, qy + yy * mod, mod, mod, C(20, 20, 20));
-}
-
 static void lanBroadcast() {
 #ifdef ENABLE_LAN
   if (app.mode == M_LAN && app.room.srv.running()) { app.room.extra.evalCp = app.evalCp; app.room.extra.hasEval = true; app.room.broadcastState(app.game); }
@@ -410,16 +373,6 @@ static void lanEnsure() {
   if (app.room.srv.running()) return;
   if (g_lanRetryAt && app.now < g_lanRetryAt) return;
   g_lanRetryAt = 0;
-  if (app.room.srv.stage() == 0) {
-    std::string html; for (int i = 0; WEB_INDEX_PARTS[i]; i++) html += WEB_INDEX_PARTS[i];
-    app.room.srv.html = html;
-    app.room.srv.addRoute("/manifest.webmanifest", "application/manifest+json",
-      "{\"name\":\"PS4 Chess\",\"short_name\":\"Chess\",\"start_url\":\"/\",\"display\":\"standalone\",\"background_color\":\"#262522\",\"theme_color\":\"#262522\","
-      "\"icons\":[{\"src\":\"/icon.svg\",\"sizes\":\"any\",\"type\":\"image/svg+xml\",\"purpose\":\"any\"}]}");
-    app.room.srv.addRoute("/icon.svg", "image/svg+xml",
-      "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='#769656'/>"
-      "<text x='50' y='72' font-size='70' text-anchor='middle' fill='#fff'>&#9822;</text></svg>");
-  }
   std::string err;
   int r = app.room.srv.startStep(LAN_PORT, &err);
   if (r == 0) { app.lanError = err; app.room.srv.stop(); g_lanRetryAt = app.now + 3000; }
@@ -904,23 +857,17 @@ static void drawLeft() {
   int y = 292;
 #ifdef ENABLE_LAN
   if (app.mode == M_LAN) {
-    ensureQr();
-    fillRound(40, y, 440, 338, 14, PANEL);
-    int qrN = app.qrc.n, mod = qrN ? 190 / qrN : 0;
-    if (qrN) {
-      int qs = mod * qrN, qx = 40 + 20, qy = y + 20;
-      fillRound(qx - 8, qy - 8, qs + 16, qs + 16, 8, C(255, 255, 255));
-      drawQr(qx, qy, mod);
-    }
-    drawText(40 + 250, y + 22, "Scan to play", F_MB, TXT);
-    drawText(40 + 250, y + 60, "Phone and PS4", F_S, SUB); drawText(40 + 250, y + 86, "on the same Wi-Fi", F_S, SUB);
-    std::string url = lanUrl();
-    drawText(64, y + 240, url.empty() ? "<PS4 IP>:8080" : url.c_str(), F_S, C(120, 200, 255));
+    fillRound(40, y, 440, 262, 14, PANEL);
+    drawText(64, y + 16, "Play with your phone", F_MB, TXT);
+    drawText(64, y + 58, "Open the PS4 Chess app on", F_S, SUB);
+    drawText(64, y + 84, "Android - it finds this PS4.", F_S, SUB);
+    drawText(64, y + 122, "PS4 address", F_XS, MUT);
+    drawText(64, y + 142, app.lanIp.empty() ? "..." : app.lanIp.c_str(), F_L, C(120, 200, 255));
     bool on = app.room.connected();
-    drawDisc(72, y + 290, 14, 14, on ? GREEN : MUT, false);
+    drawDisc(72, y + 226, 14, 14, on ? GREEN : MUT, false);
     std::string stt = !app.lanError.empty() ? "Server: " + app.lanError : on ? "Phone connected" : "Waiting for phone...";
-    drawText(92, y + 276, stt.c_str(), F_S, on ? GREEN : (!app.lanError.empty() ? RED : MUT));
-    y += 354;
+    drawText(92, y + 212, stt.c_str(), F_S, on ? GREEN : (!app.lanError.empty() ? RED : MUT));
+    y += 278;
   }
 #endif
   fillRound(40, y, 440, 956 - y + 0, 14, PANEL);
@@ -1042,27 +989,24 @@ static void drawMenu() {
   drawPieceAt(mkp(KING, WHITE), 112, 52, 120);
   drawText(250, 56, "PS4 Chess", F_T, TXT);
   drawText(254, 140, "Play against a friend, the robot, or your phone", F_S, MUT);
-  // left card: board preview or QR code
+  // left card: board preview or connection help
   fillRound(112, 250, 500, 640, 18, PANEL);
 #ifdef ENABLE_LAN
   if (app.mode == M_LAN) {
-    ensureQr();
-    int qrN = app.qrc.n, mod = qrN ? 300 / qrN : 0;
-    if (qrN) {
-      int qs = mod * qrN, qx = 112 + (500 - qs) / 2, qy = 290;
-      fillRound(qx - 14, qy - 14, qs + 28, qs + 28, 12, C(255, 255, 255));
-      drawQr(qx, qy, mod);
-    } else textC(112 + 250, 400, "Getting IP address...", F_M, MUT);
-    textC(112 + 250, 650, "Scan with your phone camera", F_MB, TXT);
-    std::string url = lanUrl();
-    textC(112 + 250, 700, url.empty() ? "http://<PS4 IP>:8080" : url.c_str(), F_M, C(120, 200, 255));
+    textC(112 + 250, 292, "Play with the Android app", F_MB, TXT);
+    textC(112 + 250, 352, "1. Open PS4 Chess on your phone", F_S, SUB);
+    textC(112 + 250, 388, "2. Tap  Play on PS4", F_S, SUB);
+    textC(112 + 250, 424, "3. It finds this PS4 by itself", F_S, SUB);
+    textC(112 + 250, 520, "PS4 address", F_S, MUT);
+    textC(112 + 250, 556, app.lanIp.empty() ? "getting address..." : app.lanIp.c_str(), F_XL, C(120, 200, 255));
+    textC(112 + 250, 640, "port 7788  -  same Wi-Fi as the phone", F_S, MUT);
     std::string st = !app.lanError.empty() ? "Server error: " + app.lanError :
       app.room.srv.running() ? (app.room.connected() ? "Phone connected" : "Server ready - waiting for phone") :
       std::string("Starting server: ") + net::Server::stageName(app.room.srv.stage());
     bool good = app.lanError.empty() && app.room.srv.running();
     drawDisc(112 + 40, 790, 16, 16, !app.lanError.empty() ? RED : good ? GREEN : GOLD, false);
     drawText(112 + 68, 774, st.c_str(), F_S, SUB);
-    drawText(112 + 40, 820, "Or open the Android app - it finds this PS4 itself", F_S, MUT);
+    drawText(112 + 40, 820, "If the app does not find it, type the address above", F_S, MUT);
   } else
 #endif
   {
@@ -1161,7 +1105,7 @@ static uint32_t frameSig() {
   if (app.screen == S_PADTEST) { for (int i = 0; i < 32; i++) h = mixh(h, (uint32_t)pad.btn[i]); h = mixh(h, (uint32_t)pad.hat); for (int i = 0; i < 4; i++) h = mixh(h, (uint32_t)(pad.ax[i] / 512 + 100)); }
 #ifdef ENABLE_LAN
   h = mixh(h, (uint32_t)app.room.connected()); h = mixh(h, (uint32_t)app.room.clients()); h = mixh(h, (uint32_t)app.room.srv.running());
-  h = mixh(h, (uint32_t)app.room.srv.stage()); h = mixh(h, (uint32_t)app.lanError.size()); h = mixh(h, (uint32_t)app.lanIp.size()); h = mixh(h, (uint32_t)app.qrText.size());
+  h = mixh(h, (uint32_t)app.room.srv.stage()); h = mixh(h, (uint32_t)app.lanError.size()); h = mixh(h, (uint32_t)app.lanIp.size());
 #endif
   return h;
 }
@@ -1203,6 +1147,10 @@ int main(int argc, char *argv[]) {
       lastSig = sig; lastDraw = app.now; first = false; drawsSince++;
     }
     if (app.now - fpsT >= 1000) {
+#ifdef ENABLE_LAN
+      if (app.room.srv.running()) snprintf(g_fpsText, sizeof(g_fpsText), "%d fps  %d Hz  net %.1f ms", drawsSince, loopsSince, app.room.srv.takeMaxPollUs() / 1000.0);
+      else
+#endif
       snprintf(g_fpsText, sizeof(g_fpsText), "%d fps  %d Hz", drawsSince, loopsSince);
       drawsSince = loopsSince = 0; fpsT = app.now; g_fpsStamp++;
     }

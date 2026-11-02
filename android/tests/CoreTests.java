@@ -1,4 +1,4 @@
-// Pure-Java tests of the Android app core: engine (perft), AI, JSON, WebSocket client and LAN session vs the real C++ server.
+// Pure-Java tests of the Android app core: engine (perft), AI, JSON, TCP line client and LAN session vs the real C++ server.
 // Usage: java CoreTests.java <chessweb binary> <android dir>   (compiles the app sources itself)
 import javax.tools.*;
 import java.io.*;
@@ -70,8 +70,6 @@ public class CoreTests {
         check(o instanceof Map && ((Map<?, ?>) o).get("e").equals(-3.0) && ((List<?>) ((Map<?, ?>) o).get("a")).get(2).equals("x\"y"), "json parse");
         check(J.getMethod("parse", String.class).invoke(null, "{bad") == null, "json rejects junk");
 
-        Class<?> W = cl.loadClass("com.ps4chess.app.core.WsClient");
-        check(W.getMethod("accept", String.class).invoke(null, "dGhlIHNhbXBsZSBub25jZQ==").equals("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="), "websocket accept key");
 
         if (args.length > 0) lanTests(cl, args[0]);
         System.out.println(fails == 0 ? "ALL CORE TESTS PASSED" : fails + " CORE FAILURES");

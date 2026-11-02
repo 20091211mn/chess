@@ -721,7 +721,7 @@ public final class ChessApp {
     private void startSearch() {
         final int id = ++lanSearchId;
         searching = true; foundHosts.clear(); lanMsg = "";
-        Discovery.search(Discovery.HTTP_PORT, Discovery.localPrefixes(false), Discovery.broadcastTargets(), new Discovery.Listener() {
+        Discovery.search(Discovery.PORT, Discovery.localPrefixes(false), Discovery.broadcastTargets(), new Discovery.Listener() {
             public void onFound(final String ip, final int port) {
                 pf.ui(new Runnable() { public void run() { if (id == lanSearchId && !foundHosts.contains(ip + ":" + port)) { foundHosts.add(ip + ":" + port); pf.invalidate(); } } }, 0);
             }

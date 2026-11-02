@@ -12,8 +12,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install deps
         run: sudo apt-get update && sudo apt-get install -y clang lld llvm unzip python3
-      - name: Regenerate embedded web page
-        run: python3 tools/gen_web.py
       - name: Download OpenOrbis toolchain
         run: |
           mkdir -p tc && cd tc
@@ -35,7 +33,7 @@ jobs:
           echo "Target dir: $T"; find "work/$N" -maxdepth 3 | head -50
           find "$T" -maxdepth 1 -type f \( -name '*.c' -o -name '*.cpp' \) -delete
           { echo '#include <sstream>'; echo 'std::stringstream debugLogStream;'; cat ps4/main.cpp; } > "$T/main.cpp"
-          cp core/*.hpp core/web_html.h ps4/*.hpp "$T/"
+          cp core/*.hpp ps4/*.hpp "$T/"
           touch "$T/lan_enabled.h"
           I=$(find "work/$N" -name icon0.png | head -1)
           echo "icon: $I"; cp ps4/icon0.png "$I"
