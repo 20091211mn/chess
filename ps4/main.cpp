@@ -124,9 +124,45 @@ static void drawDisc(int cx, int cy, int dw, int dh, Col c, bool ring) {
   else fillRect(cx - dw / 4, cy - dh / 4, dw / 2, dh / 2, c);
 }
 // rounded rectangle (opaque colours; corners are discs)
+static std::map<uint64_t, SDL_Texture *> g_roundCache;
+static size_t g_roundBytes = 0;
+// white rounded-rectangle mask of a given size, tinted with colour/alpha mods when drawn
+static SDL_Texture *roundTex(int w, int h, int r) {
+  uint64_t key = ((uint64_t)(unsigned)w << 40) ^ ((uint64_t)(unsigned)h << 20) ^ (uint64_t)(unsigned)r;
+  std::map<uint64_t, SDL_Texture *>::iterator it = g_roundCache.find(key);
+  if (it != g_roundCache.end()) return it->second;
+  size_t bytes = (size_t)w * h * 4;
+  if (g_roundBytes + bytes > 40u * 1024u * 1024u) {
+    for (it = g_roundCache.begin(); it != g_roundCache.end(); ++it) if (it->second) SDL_DestroyTexture(it->second);
+    g_roundCache.clear(); g_roundBytes = 0;
+  }
+  std::vector<uint32_t> px((size_t)w * h, 0xFFFFFFFFu);
+  for (int cy = 0; cy < 2; cy++) for (int cx = 0; cx < 2; cx++) {
+    int x0 = cx ? w - r : 0, y0 = cy ? h - r : 0;
+    float ccx = cx ? (float)(w - r) : (float)r, ccy = cy ? (float)(h - r) : (float)r;
+    for (int y = y0; y < y0 + r; y++) for (int x = x0; x < x0 + r; x++) {
+      float dx = x + 0.5f - ccx, dy = y + 0.5f - ccy, d = sqrtf(dx * dx + dy * dy), a = (float)r - d + 0.5f;
+      if (a < 0) a = 0; if (a > 1) a = 1;
+      px[(size_t)y * w + x] = ((uint32_t)(a * 255.f) << 24) | 0x00FFFFFFu;
+    }
+  }
+  SDL_Texture *t = makeTex(w, h, px);
+  g_roundCache[key] = t; g_roundBytes += bytes;
+  return t;
+}
 static void fillRound(int x, int y, int w, int h, int r, Col c) {
+  if (w <= 0 || h <= 0) return;
   if (r * 2 > h) r = h / 2;
   if (r * 2 > w) r = w / 2;
+  if (texOK && r > 0) {
+    SDL_Texture *t = roundTex(w, h, r);
+    if (t) {
+      SDL_Rect dst; dst.x = x; dst.y = y; dst.w = w; dst.h = h;
+      SDL_SetTextureColorMod(t, c.r, c.g, c.b); SDL_SetTextureAlphaMod(t, c.a);
+      SDL_RenderCopy(R, t, 0, &dst);
+      return;
+    }
+  }
   fillRect(x + r, y, w - 2 * r, h, c);
   fillRect(x, y + r, r, h - 2 * r, c);
   fillRect(x + w - r, y + r, r, h - 2 * r, c);
@@ -333,7 +369,7 @@ struct App {
 static App app;
 static Pad pad;
 static unsigned g_frames = 0, g_fpsStamp = 0;
-static char g_fpsText[64] = "";
+static char g_fpsText[96] = "";
 
 static int squareAt(int col, int row) {
   int f = app.flipped ? 7 - col : col, r = app.flipped ? row : 7 - row;
@@ -765,15 +801,37 @@ static void drawEvalBar() {
   textC(x + w / 2, ty, b, F_XS, whiteAhead ? C(40, 40, 38) : C(235, 235, 235));
 }
 
+static SDL_Texture *g_boardTex = 0; static int g_boardTheme = -1;
+// returns true when the whole 8x8 checker pattern was drawn with a single texture copy
+static bool drawBoardBase() {
+  if (!texOK) return false;
+  if (!g_boardTex || g_boardTheme != app.theme) {
+    if (g_boardTex) SDL_DestroyTexture(g_boardTex);
+    const Theme &th = THEMES[app.theme];
+    std::vector<uint32_t> px((size_t)BOARD_PX * BOARD_PX);
+    for (int y = 0; y < BOARD_PX; y++) for (int x = 0; x < BOARD_PX; x++) {
+      const Col &c = (((x / CELL) + (y / CELL)) & 1) == 0 ? th.light : th.dark;
+      px[(size_t)y * BOARD_PX + x] = 0xFF000000u | ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b;
+    }
+    g_boardTex = makeTex(BOARD_PX, BOARD_PX, px); g_boardTheme = app.theme;
+  }
+  if (!g_boardTex) return false;
+  SDL_Rect dst; dst.x = BX; dst.y = BY; dst.w = BOARD_PX; dst.h = BOARD_PX;
+  SDL_SetTextureColorMod(g_boardTex, 255, 255, 255); SDL_SetTextureAlphaMod(g_boardTex, 255);
+  SDL_RenderCopy(R, g_boardTex, 0, &dst);
+  return true;
+}
+
 static void drawBoard() {
   Game &g = app.game;
   const Theme &th = THEMES[app.theme];
   fillRound(BX - 8, BY - 8, BOARD_PX + 16, BOARD_PX + 16, 10, C(22, 21, 19));
   int kingSqr = g.check() ? kingSq(g.pos, g.pos.side) : -1;
+  bool baseTex = drawBoardBase();
   for (int row = 0; row < 8; row++) for (int col = 0; col < 8; col++) {
     int sq = squareAt(col, row), x = BX + col * CELL, y = BY + row * CELL;
     bool light = ((fileOf(sq) + rankOf(sq)) & 1) == 1;
-    fillRect(x, y, CELL, CELL, light ? th.light : th.dark);
+    if (!baseTex) fillRect(x, y, CELL, CELL, light ? th.light : th.dark);
     if (sq == app.lastFrom || sq == app.lastTo) fillRect(x, y, CELL, CELL, C(255, 255, 50, 105));
     if (sq == app.sel) fillRect(x, y, CELL, CELL, C(20, 110, 40, 135));
     if (sq == kingSqr) drawDisc(x + CELL / 2, y + CELL / 2, CELL, CELL, C(235, 55, 45, 175), false);
@@ -1123,7 +1181,7 @@ int main(int argc, char *argv[]) {
   app.lanIp = net::localIp();
 #endif
   bool run = true;
-  Uint32 lastDraw = 0, fpsT = SDL_GetTicks(); int drawsSince = 0, loopsSince = 0; uint32_t lastSig = 0; bool first = true;
+  Uint32 lastDraw = 0, fpsT = SDL_GetTicks(), drawInterval = 22, drawMsMax = 0; int drawsSince = 0, loopsSince = 0; uint32_t lastSig = 0; bool first = true;
   while (run) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) { if (e.type == SDL_QUIT) run = false; pad.onEvent(e); }
@@ -1138,21 +1196,25 @@ int main(int argc, char *argv[]) {
     app.lastFrame = app.now;
     g_frames++; loopsSince++;
     uint32_t sig = frameSig();
-    bool need = first || sig != lastSig || app.now - lastDraw >= 250;
+    bool need = first || sig != lastSig || app.now - lastDraw >= drawInterval;
     if (need) {
+      Uint32 d0 = SDL_GetTicks();
       if (app.screen == S_MENU) drawMenu();
       else if (app.screen == S_GAME) drawGame();
       else drawPadTest();
       SDL_RenderPresent(R);
+      Uint32 cost = SDL_GetTicks() - d0;
+      if (cost > drawMsMax) drawMsMax = cost;
+      drawInterval = cost > 30 ? (cost * 2 < 250 ? cost * 2 : 250) : 22;   // if drawing is slow, leave time for the network
       lastSig = sig; lastDraw = app.now; first = false; drawsSince++;
     }
     if (app.now - fpsT >= 1000) {
 #ifdef ENABLE_LAN
-      if (app.room.srv.running()) snprintf(g_fpsText, sizeof(g_fpsText), "%d fps  %d Hz  net %.1f ms", drawsSince, loopsSince, app.room.srv.takeMaxPollUs() / 1000.0);
+      if (app.room.srv.running()) snprintf(g_fpsText, sizeof(g_fpsText), "%d fps  %d Hz  draw %u ms  net %.1f ms", drawsSince, loopsSince, (unsigned)drawMsMax, app.room.srv.takeMaxPollUs() / 1000.0);
       else
 #endif
-      snprintf(g_fpsText, sizeof(g_fpsText), "%d fps  %d Hz", drawsSince, loopsSince);
-      drawsSince = loopsSince = 0; fpsT = app.now; g_fpsStamp++;
+      snprintf(g_fpsText, sizeof(g_fpsText), "%d fps  %d Hz  draw %u ms", drawsSince, loopsSince, (unsigned)drawMsMax);
+      drawsSince = loopsSince = 0; drawMsMax = 0; fpsT = app.now; g_fpsStamp++;
     }
     SDL_Delay(need ? 1 : 3);   // idle iterations are cheap: the network is polled at ~300 Hz
   }

@@ -32,6 +32,6 @@ int main() {
   wait(60);
   check([] { c0 = copies; f0 = fills; p0 = presents; u0 = uploads; f_at = g_frame; });
   wait(400);
-  check([] { int n = g_frame - f_at; printf("idle LAN game, %d loop iterations: draw calls/iteration = %.1f (copies %.1f + fills %.1f), presents = %ld, texture uploads = %ld\n", n, (double)(copies - c0 + fills - f0) / n, (double)(copies - c0) / n, (double)(fills - f0) / n, presents - p0, uploads - u0); });
+  check([] { int n = g_frame - f_at; long pr = presents - p0; printf("idle LAN game, %d loops (%.1f s virtual): %ld frames drawn = %.0f fps, %.0f draw calls per frame (copies %.0f + fills %.0f), texture uploads = %ld\n", n, n * 0.008, pr, pr / (n * 0.008), (double)(copies - c0 + fills - f0) / (pr ? pr : 1), (double)(copies - c0) / (pr ? pr : 1), (double)(fills - f0) / (pr ? pr : 1), uploads - u0); });
   lastFrame = TT + 3; app_main(0, 0); return 0;
 }

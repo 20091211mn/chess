@@ -8,12 +8,12 @@ No web page, no browser and no HTTP server are involved: the phone and the PS4 t
 * **Android app** finds the console by itself: it sends a UDP broadcast `PS4CHESS?` (the PS4 answers `PS4CHESS|7788|PS4 Chess`) and in parallel probes the Wi-Fi network. A manual "Type address" box is the fallback.
 * **Protocol**: plain TCP, one message per line. The PS4 greets every connection with `{"t":"hello","app":"PS4CHESS",...}`; the app sends `hello`, `ping` (every 4 s), `move e2e4`, `resign`, `draw`, `draw_yes`, `draw_no`, `new`, `hist`; the PS4 answers with `{"t":"state",...}` lines. The PS4 is authoritative: it validates every move with the same rules engine.
 * The app reconnects by itself after a Wi-Fi drop; a phone that went to sleep is replaced by its next connection.
-* The network layer never blocks the game loop (non-blocking sockets, `MSG_DONTWAIT`, 1 ms timeouts, no `select()`), and the top-right corner of the PS4 screen shows `N fps  M Hz  net X ms` so any stall is visible.
+* The network layer never blocks the game loop (non-blocking sockets, `MSG_DONTWAIT`, 1 ms timeouts, no `select()`), and the top-right corner of the PS4 screen shows `N fps  M Hz  draw X ms  net Y ms` (frames drawn per second, loop iterations per second, slowest draw, slowest network poll) so any stall is visible.
 
 ## PS4 game
 * Modes: local 2 players, vs Robot (5 levels), LAN with the Android app. Clocks, draw offers, hints, evaluation bar, undo, 4 board themes, animated moves, move list.
 * Full rules (check, checkmate, stalemate, castling, en passant, promotion, repetition, 50-move, insufficient material); the move generator matches published perft numbers.
-* The screen is redrawn only when something visible changed; text is cached as textures (an idle game costs ~14 draw calls per loop).
+* Rendering budget: text, rounded panels, the board and the pieces' shadows are cached textures, so a full frame costs ~170 draw calls (it was ~870). The game draws at a steady 45+ fps (60 while things move) and adapts if drawing itself is slow, so the network loop always gets its share.
 * Controls: D-pad / left stick, X select, O cancel (hold O = pause menu), Square flip, Triangle undo. If a button does nothing use *Controller test* in the menu (mapping: `BTN_*` near the top of `ps4/main.cpp`).
 
 ## Android app
